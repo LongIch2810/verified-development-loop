@@ -21,33 +21,48 @@ VDL requires **Python 3.11+**, Git, and an agent that can read the skill, run Py
 
 ## Install the skill in a project
 
-Run this from the project where you want to use VDL:
+### Quick Install (One-Liner)
 
-```sh
-npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop
-```
+Run one single command from your project root to install the skill, initialize workflow state, register lifecycle hooks (for Codex, Claude Code, Cursor, and Antigravity), and start the Control Center:
 
-That command is enough to install the skill. `npx skills` detects installed agents and places the skill in their skill directories. For example, Codex and Cursor use `.agents/skills/`, while Claude Code also receives it in `.claude/skills/`. Add `--copy -y` if you want a copied installation without prompts. No npm package is required; [the Skills CLI installs directly from a Git repository](https://github.com/vercel-labs/skills#source-formats).
+- **Windows (PowerShell):**
+  ```powershell
+  npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop --copy -y; python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target .
+  ```
 
-### Optional: set up hooks and Control Center
+- **Windows (CMD):**
+  ```cmd
+  npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop --copy -y && python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target .
+  ```
 
-The install command does not run the setup script or activate hooks. To initialize workflow directories, register lifecycle hooks, and start the dashboard, run this in the same project:
+- **macOS / Linux:**
+  ```bash
+  npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop --copy -y && python3 .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target .
+  ```
 
-```sh
-python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target .
-```
+### Step-by-Step Installation
 
-Use `python3` instead of `python` on macOS and Linux. The script creates `.verified-development-loop/`, adds `.vdl/` to `.gitignore`, and starts the Control Center. On **Windows, macOS, and Linux**, it also registers lifecycle hooks for Codex, Claude Code, and Cursor by default. These hooks let the dashboard observe sessions and subagents.
+1. **Install the skill files:**
+   ```sh
+   npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop --copy -y
+   ```
+   `npx skills` detects installed agents and places the skill in their directories (`.agents/skills/` for Codex, Cursor, and Antigravity; `.claude/skills/` for Claude Code). No npm package is required; [the Skills CLI installs directly from a Git repository](https://github.com/vercel-labs/skills#source-formats).
 
-To register hooks for one host only, combine `--no-hooks` with that host's flag:
+2. **Run setup for hooks and Control Center:**
+   ```sh
+   python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target .
+   ```
+   *(Use `python3` instead of `python` on macOS and Linux.)*
 
-```sh
-python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target . --no-hooks --codex-hooks
-```
+   The script creates `.verified-development-loop/`, adds `.vdl/` to `.gitignore`, registers lifecycle hooks for **Codex, Claude Code, Cursor, and Antigravity**, and starts the Control Center at `http://127.0.0.1:4040`.
 
-Replace `--codex-hooks` with `--claude-hooks` or `--cursor-hooks` as needed; you can combine host flags. Use `--no-control-center` to skip starting the dashboard.
+   To register hooks for specific hosts only, combine `--no-hooks` with host flags:
+   ```sh
+   python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target . --no-hooks --antigravity-hooks
+   ```
+   Host flags include `--codex-hooks`, `--claude-hooks`, `--cursor-hooks`, and `--antigravity-hooks`. Use `--no-control-center` to skip starting the dashboard.
 
-The workflow still records checkpoints emitted explicitly through `workflow.py emit` and its state transition commands. **Without hooks, the Control Center cannot passively observe prompts, sessions, or subagents.** The installer uses a `.cmd` launcher on Windows and `python3` on macOS/Linux. Other hosts need their own hook adapter for passive observation. See [portability](skills/vdl-verified-development-loop/references/portability.md) and [event tracking](skills/vdl-verified-development-loop/references/tracking.md).
+   The workflow still records checkpoints emitted explicitly through `workflow.py emit` and its state transition commands. **Without hooks, the Control Center cannot passively observe prompts, sessions, or subagents.** The installer uses a `.cmd` launcher on Windows and `python3` on macOS/Linux. See [portability](skills/vdl-verified-development-loop/references/portability.md) and [event tracking](skills/vdl-verified-development-loop/references/tracking.md).
 
 ## Use the skill
 

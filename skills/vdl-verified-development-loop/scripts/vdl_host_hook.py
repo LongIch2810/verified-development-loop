@@ -37,97 +37,154 @@ def find_project_root() -> Path:
     return cwd
 
 
-def handle_hook():
+def handle_hook() -> dict:
+    raw_data = {}
     try:
         raw_input = sys.stdin.read().strip()
-        if not raw_input:
-            return
-        data = json.loads(raw_input)
+        if raw_input:
+            parsed = json.loads(raw_input)
+            if isinstance(parsed, dict):
+                raw_data = parsed
     except Exception:
-        return
+        raw_data = {}
 
-    if not isinstance(data, dict):
-        return
+    data = raw_data
+    event_name = data.get("hook_event_name") or data.get("event") or (sys.argv[1] if len(sys.argv) > 1 else "")
+    session_id = (
+        data.get("session_id")
+        or data.get("conversation_id")
+        or data.get("conversationId")
+        or data.get("parent_conversation_id")
+        or "default"
+    )
+    agent_id = data.get("agent_id") or data.get("subagent_id")
+    agent_type = data.get("agent_type") or data.get("subagent_type") or ""
+    model = data.get("model") or data.get("subagent_model") or data.get("modelName")
 
-    # Extract target root if tool_input has cwd
+    # Extract target root if tool_input has cwd or workspacePaths
     root = find_project_root()
     tool_input = data.get("tool_input")
     if isinstance(tool_input, dict) and "cwd" in tool_input:
         cand = Path(tool_input["cwd"]).resolve()
         if cand.exists():
             root = cand
+    elif "workspacePaths" in data and isinstance(data["workspacePaths"], list) and data["workspacePaths"]:
+        cand = Path(data["workspacePaths"][0]).resolve()
+        if cand.exists():
+            root = cand
 
-    if not emit_event:
-        return
+    if emit_event:
+        try:
+            # Host lifecycle events remain generic; workflow roles come from explicit phase events.
+            if event_name in ("SessionStart", "session_start", "sessionStart"):
+                emit_event(
+                    root,
+                    event_type="session.started",
+                    status="RUNNING",
+                    source="hook",
+                    session_id=session_id,
+                    agent_id=agent_id,
+                    data={"model": model, "agent_type": agent_type},
+                )
 
-    event_name = data.get("hook_event_name") or data.get("event") or (sys.argv[1] if len(sys.argv) > 1 else "")
-    session_id = data.get("session_id") or data.get("conversation_id") or data.get("parent_conversation_id") or "default"
-    agent_id = data.get("agent_id") or data.get("subagent_id")
-    agent_type = data.get("agent_type") or data.get("subagent_type") or ""
-    model = data.get("model") or data.get("subagent_model")
+            elif event_name in ("UserPromptSubmit", "user_prompt_submit", "beforeSubmitPrompt"):
+                prompt = data.get("prompt") or data.get("last_user_message") or ""
+                preview = prompt[:100] + ("..." if len(prompt) > 100 else "")
+                emit_event(
+                    root,
+                    event_type="prompt.received",
+                    status="COMPLETED",
+                    source="hook",
+                    session_id=session_id,
+                    data={"prompt_preview": preview},
+                )
 
-    # Host lifecycle events remain generic; workflow roles come from explicit phase events.
-    if event_name in ("SessionStart", "session_start", "sessionStart"):
-        emit_event(
-            root,
-            event_type="session.started",
-            status="RUNNING",
-            source="hook",
-            session_id=session_id,
-            agent_id=agent_id,
-            data={"model": model, "agent_type": agent_type},
-        )
+            elif event_name in ("SubagentStart", "subagent_start", "subagentStart"):
+                emit_event(
+                    root,
+                    event_type="subagent.started",
+                    status="RUNNING",
+                    source="hook",
+                    session_id=session_id,
+                    agent_id=agent_id or agent_type,
+                    data={"agent_type": agent_type, "model": model},
+                )
 
-    elif event_name in ("UserPromptSubmit", "user_prompt_submit", "beforeSubmitPrompt"):
-        prompt = data.get("prompt") or data.get("last_user_message") or ""
-        preview = prompt[:100] + ("..." if len(prompt) > 100 else "")
-        emit_event(
-            root,
-            event_type="prompt.received",
-            status="COMPLETED",
-            source="hook",
-            session_id=session_id,
-            data={"prompt_preview": preview},
-        )
+            elif event_name in ("SubagentStop", "subagent_stop", "subagentStop"):
+                outcome = data.get("status", "completed")
+                emit_event(
+                    root,
+                    event_type="subagent.completed" if outcome == "completed" else "subagent.failed",
+                    status="COMPLETED" if outcome == "completed" else "FAILED",
+                    source="hook",
+                    session_id=session_id,
+                    agent_id=agent_id or agent_type,
+                    data={"agent_type": agent_type, "outcome": outcome},
+                )
 
-    elif event_name in ("SubagentStart", "subagent_start", "subagentStart"):
-        emit_event(
-            root,
-            event_type="subagent.started",
-            status="RUNNING",
-            source="hook",
-            session_id=session_id,
-            agent_id=agent_id or agent_type,
-            data={"agent_type": agent_type, "model": model},
-        )
+            elif event_name in ("PreInvocation", "preInvocation"):
+                if data.get("invocationNum") == 1:
+                    emit_event(
+                        root,
+                        event_type="session.started",
+                        status="RUNNING",
+                        source="hook",
+                        session_id=session_id,
+                        agent_id=agent_id,
+                        data={"model": model, "agent_type": agent_type},
+                    )
 
-    elif event_name in ("SubagentStop", "subagent_stop", "subagentStop"):
-        outcome = data.get("status", "completed")
-        emit_event(
-            root,
-            event_type="subagent.completed" if outcome == "completed" else "subagent.failed",
-            status="COMPLETED" if outcome == "completed" else "FAILED",
-            source="hook",
-            session_id=session_id,
-            agent_id=agent_id or agent_type,
-            data={"agent_type": agent_type, "outcome": outcome},
-        )
+            elif event_name in ("Stop", "stop", "sessionEnd"):
+                emit_event(
+                    root,
+                    event_type="session.stopped",
+                    status="COMPLETED",
+                    source="hook",
+                    session_id=session_id,
+                    data={"reason": data.get("reason") or data.get("terminationReason")},
+                )
+        except Exception:
+            pass
 
-    elif event_name in ("Stop", "stop", "sessionEnd"):
-        emit_event(
-            root,
-            event_type="session.stopped",
-            status="COMPLETED",
-            source="hook",
-            session_id=session_id,
-            data={"reason": data.get("reason")},
-        )
+    # Host responses
+    if event_name in ("PreToolUse", "preToolUse"):
+        # Check safety on run_command or file editing tools
+        tool_call = data.get("toolCall") or {}
+        tool_name = tool_call.get("name") or data.get("tool_name", "")
+        tool_args = tool_call.get("args") or data.get("tool_args", {})
+        if tool_name == "run_command":
+            cmd = (tool_args.get("CommandLine") or "").strip().lower()
+            blocked = ["rm -rf /", "rm -rf /*", "format c:", "mkfs"]
+            if any(b in cmd for b in blocked):
+                return {"decision": "deny", "reason": f"Dangerous command blocked by safety gate: {cmd}"}
+        return {"decision": "allow"}
+
+    if event_name in ("PreInvocation", "preInvocation"):
+        return {
+            "injectSteps": [
+                {
+                    "ephemeralMessage": "Nhắc nhở: Luôn tuân thủ kiến trúc MVVM và quy tắc lưu trữ offline bằng SQLite."
+                }
+            ]
+        }
+
+    if "subagentStart" in sys.argv:
+        return {"permission": "allow"}
+
+    return {}
 
 
 if __name__ == "__main__":
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8")
+        except Exception:
+            pass
+    response = {}
     try:
-        handle_hook()
+        response = handle_hook() or {}
     except Exception:
-        pass
-    # Cursor requires JSON even from an observability-only subagentStart hook.
-    print('{"permission":"allow"}' if "subagentStart" in sys.argv else "{}")
+        response = {}
+    if not isinstance(response, dict):
+        response = {}
+    print(json.dumps(response))

@@ -57,12 +57,15 @@ class PortabilityTests(unittest.TestCase):
                 sock.bind(("127.0.0.1", 0))
                 port = sock.getsockname()[1]
             process = start_control_center(repo, port=port)
+            self.assertIsNotNone(process)
+            assert process is not None
             try:
                 self.assertIsNone(start_control_center(repo, port=port))
                 self.assertIsNone(process.poll())
             finally:
-                process.terminate()
-                process.wait(timeout=5)
+                if process is not None:
+                    process.terminate()
+                    process.wait(timeout=5)
 
     def test_skill_folder_alone_initializes_shared_roles_and_state(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -76,6 +79,7 @@ class PortabilityTests(unittest.TestCase):
             self.assertTrue((repo / ".codex/hooks.json").is_file())
             self.assertTrue((repo / ".claude/settings.json").is_file())
             self.assertTrue((repo / ".cursor/hooks.json").is_file())
+            self.assertTrue((repo / ".agents/hooks.json").is_file())
             self.assertFalse((repo / ".claude/skills/vdl-verified-development-loop/SKILL.md").exists())
 
     def test_installs_shared_skill_without_host_agent_files(self):
@@ -88,6 +92,7 @@ class PortabilityTests(unittest.TestCase):
             self.assertTrue((repo / ".agents/skills/vdl-verified-development-loop/scripts/workflow.py").is_file())
             self.assertFalse((repo / ".codex/agents").exists())
             self.assertTrue((repo / ".codex/hooks.json").is_file())
+            self.assertTrue((repo / ".agents/hooks.json").is_file())
             self.assertFalse((repo / ".claude/agents").exists())
             self.assertFalse((repo / ".cursor/agents").exists())
             claude_entry = repo / ".claude/skills/vdl-verified-development-loop/SKILL.md"
@@ -211,6 +216,7 @@ class PortabilityTests(unittest.TestCase):
             self.assertFalse((repo / ".codex/hooks.json").exists())
             self.assertFalse((repo / ".claude/settings.json").exists())
             self.assertFalse((repo / ".cursor/hooks.json").exists())
+            self.assertFalse((repo / ".agents/hooks.json").exists())
 
     def test_posix_hooks_use_python3_and_keep_existing_config(self):
         with tempfile.TemporaryDirectory(prefix="vdl hook ' space ") as temp:
@@ -225,6 +231,7 @@ class PortabilityTests(unittest.TestCase):
             codex = json.loads((repo / ".codex/hooks.json").read_text(encoding="utf-8"))
             claude = json.loads((repo / ".claude/settings.json").read_text(encoding="utf-8"))
             cursor = json.loads((repo / ".cursor/hooks.json").read_text(encoding="utf-8"))
+            antigravity = json.loads((repo / ".agents/hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(claude["permissions"]["allow"], ["Read"])
             for config, event, nested in ((codex, "SessionStart", True), (claude, "SubagentStart", True), (cursor, "subagentStart", False)):
                 handlers = config["hooks"][event]
@@ -235,6 +242,49 @@ class PortabilityTests(unittest.TestCase):
                 self.assertNotIn("vdl-hook.cmd", command)
                 parts = shlex.split(command)
                 self.assertEqual(parts[:2], ["python3", str(repo / ".agents/skills/vdl-verified-development-loop/scripts/vdl_host_hook.py")])
+            agy_vdl = antigravity["vdl-verified-development-loop"]
+            self.assertIn("PreToolUse", agy_vdl)
+            self.assertIn("PostToolUse", agy_vdl)
+            self.assertIn("PreInvocation", agy_vdl)
+            self.assertIn("Stop", agy_vdl)
+            pre_tool_cmd = agy_vdl["PreToolUse"][0]["hooks"][0]["command"]
+            self.assertIn("python3 ", pre_tool_cmd)
+            self.assertIn("PreToolUse", pre_tool_cmd)
+
+    def test_antigravity_hooks_structure_and_execution(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            install_vdl(repo, start_dashboard=False)
+            hooks_path = repo / ".agents/hooks.json"
+            self.assertTrue(hooks_path.is_file())
+            config = json.loads(hooks_path.read_text(encoding="utf-8"))
+            self.assertIn("vdl-verified-development-loop", config)
+            vdl = config["vdl-verified-development-loop"]
+            self.assertEqual(vdl["PreToolUse"][0]["matcher"], "run_command|replace_file_content|write_to_file|multi_replace_file_content")
+            self.assertEqual(vdl["PostToolUse"][0]["matcher"], "run_command|replace_file_content|write_to_file|multi_replace_file_content")
+            self.assertIsInstance(vdl["PreInvocation"], list)
+            self.assertIsInstance(vdl["Stop"], list)
+
+            # Test execution of PreToolUse
+            pre_cmd = vdl["PreToolUse"][0]["hooks"][0]["command"]
+            res = subprocess.run(pre_cmd, shell=True, cwd=repo, input='{"toolCall":{"name":"run_command","args":{"CommandLine":"npm test"}}}', capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            out = json.loads(res.stdout)
+            self.assertEqual(out.get("decision"), "allow")
+
+            # Test execution of PreInvocation
+            inv_cmd = vdl["PreInvocation"][0]["command"]
+            res = subprocess.run(inv_cmd, shell=True, cwd=repo, input='{"invocationNum": 1}', capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            out = json.loads(res.stdout)
+            self.assertIn("injectSteps", out)
+            self.assertTrue(any("MVVM" in s.get("ephemeralMessage", "") for s in out["injectSteps"]))
+
+            # Test execution of Stop
+            stop_cmd = vdl["Stop"][0]["command"]
+            res = subprocess.run(stop_cmd, shell=True, cwd=repo, input='{"executionNum": 1}', capture_output=True, text=True)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            self.assertEqual(json.loads(res.stdout), {})
 
 
 if __name__ == "__main__":

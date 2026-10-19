@@ -134,6 +134,69 @@ def configure_other_hooks(target_root: Path, host: str):
     config_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def configure_antigravity_hooks(target_root: Path):
+    agents_dir = target_root / ".agents"
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    hooks_file = agents_dir / "hooks.json"
+
+    hook_cmd = hook_command(target_root)
+
+    existing = json.loads(hooks_file.read_text(encoding="utf-8")) if hooks_file.exists() else {}
+    if not isinstance(existing, dict):
+        raise ValueError(f"Invalid hook configuration: {hooks_file}")
+
+    tool_matcher = "run_command|replace_file_content|write_to_file|multi_replace_file_content"
+
+    vdl_hook_config = {
+        "PreToolUse": [
+            {
+                "matcher": tool_matcher,
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f"{hook_cmd} PreToolUse",
+                        "timeout": 10,
+                    }
+                ],
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": tool_matcher,
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": f"{hook_cmd} PostToolUse",
+                        "timeout": 10,
+                    }
+                ],
+            }
+        ],
+        "PreInvocation": [
+            {
+                "type": "command",
+                "command": f"{hook_cmd} PreInvocation",
+                "timeout": 10,
+            }
+        ],
+        "Stop": [
+            {
+                "type": "command",
+                "command": f"{hook_cmd} Stop",
+                "timeout": 10,
+            }
+        ],
+    }
+
+    hook_key = "vdl-verified-development-loop"
+    legacy_key = "ai-coding-workflow"
+    if legacy_key in existing and hook_key not in existing:
+        existing[hook_key] = existing.pop(legacy_key)
+
+    existing[hook_key] = vdl_hook_config
+    hooks_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def control_center_roots(port: int):
     try:
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/projects", timeout=0.3) as response:
@@ -165,13 +228,25 @@ def start_control_center(target_root: Path, port: int = 4040):
     raise RuntimeError(f"Control Center did not start on port {port}")
 
 
-def install_vdl(target_root: Path, codex_hooks: bool = True, claude_hooks: bool = True, cursor_hooks: bool = True, start_dashboard: bool = True):
+def install_vdl(
+    target_root: Path,
+    codex_hooks: bool = True,
+    claude_hooks: bool = True,
+    cursor_hooks: bool = True,
+    antigravity_hooks: bool = True,
+    start_dashboard: bool = True,
+):
     target_root = target_root.resolve()
     print(f"Installing VDL into target repository: {target_root}")
     old_hook_path = ".agents/skills/ai-coding-workflow/scripts/vdl-hook.cmd"
     had_old_hook = any(
         old_hook_path in path.read_text(encoding="utf-8")
-        for path in (target_root / ".codex/hooks.json", target_root / ".claude/settings.json", target_root / ".cursor/hooks.json")
+        for path in (
+            target_root / ".codex/hooks.json",
+            target_root / ".claude/settings.json",
+            target_root / ".cursor/hooks.json",
+            target_root / ".agents/hooks.json",
+        )
         if path.exists()
     )
 
@@ -231,7 +306,7 @@ def install_vdl(target_root: Path, codex_hooks: bool = True, claude_hooks: bool 
     print("  Configured .gitignore (.vdl/ exclusion)")
 
     # 4. Lifecycle hooks
-    if os.name == "nt" and (codex_hooks or claude_hooks or cursor_hooks):
+    if os.name == "nt" and (codex_hooks or claude_hooks or cursor_hooks or antigravity_hooks):
         check_stop_hook(target_root)
     if codex_hooks:
         configure_hooks(target_root)
@@ -242,6 +317,9 @@ def install_vdl(target_root: Path, codex_hooks: bool = True, claude_hooks: bool 
     if cursor_hooks:
         configure_other_hooks(target_root, "cursor")
         print("  Configured Cursor lifecycle hooks in .cursor/hooks.json")
+    if antigravity_hooks:
+        configure_antigravity_hooks(target_root)
+        print("  Configured Antigravity lifecycle hooks in .agents/hooks.json")
 
     if start_dashboard:
         process = start_control_center(target_root)
@@ -258,12 +336,14 @@ def main():
     parser.add_argument("--codex-hooks", action="store_true", help="with --no-hooks, install only Codex lifecycle hooks")
     parser.add_argument("--claude-hooks", action="store_true", help="with --no-hooks, install only Claude Code lifecycle hooks")
     parser.add_argument("--cursor-hooks", action="store_true", help="with --no-hooks, install only Cursor lifecycle hooks")
+    parser.add_argument("--antigravity-hooks", action="store_true", help="with --no-hooks, install only Antigravity lifecycle hooks")
     args = parser.parse_args()
     install_vdl(
         args.target,
         codex_hooks=not args.no_hooks or args.codex_hooks,
         claude_hooks=not args.no_hooks or args.claude_hooks,
         cursor_hooks=not args.no_hooks or args.cursor_hooks,
+        antigravity_hooks=not args.no_hooks or args.antigravity_hooks,
         start_dashboard=not args.no_control_center,
     )
 
