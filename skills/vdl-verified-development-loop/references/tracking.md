@@ -39,6 +39,7 @@ All state gates in `workflow.py` automatically emit telemetry events to the appe
 For workflow phases occurring in model chat, the main agent emits explicit checkpoints via CLI:
 ```bash
 python <skill-dir>/scripts/workflow.py emit --event raw_prompt.received
+# For bug mode, include --data '{"mode":"bug"}' so Control Center shows Diagnosis immediately.
 python <skill-dir>/scripts/workflow.py emit --event read_errors.started
 python <skill-dir>/scripts/workflow.py emit --event read_errors.completed --data '{"error_count": 0}'
 python <skill-dir>/scripts/workflow.py emit --event interview.started

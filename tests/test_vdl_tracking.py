@@ -14,6 +14,16 @@ import workflow as w
 
 
 class VDLEventTrackingTests(unittest.TestCase):
+    def test_bug_mode_returns_to_feature_graph_on_next_workflow(self):
+        events = [ve.emit_event(self.root, "raw_prompt.received", data={"mode": "bug"}, notify=False)]
+        bug = ve.WorkflowStateReducer.reduce(self.root, events)
+        self.assertIn("diagnosis", {node["id"] for node in bug["graph"]["nodes"]})
+        events.append(ve.emit_event(self.root, "diagnosis.started", status="RUNNING", notify=False))
+        events.append(ve.emit_event(self.root, "raw_prompt.received", notify=False))
+        feature = ve.WorkflowStateReducer.reduce(self.root, events)
+        self.assertIn("interview", {node["id"] for node in feature["graph"]["nodes"]})
+        self.assertNotIn("diagnosis", {node["id"] for node in feature["graph"]["nodes"]})
+
     def test_graph_highlights_only_a_phase_that_has_started(self):
         events = []
         def add(event_type, status="COMPLETED"):

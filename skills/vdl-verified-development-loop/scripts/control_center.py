@@ -1308,6 +1308,10 @@ HTML_PAGE = """<!DOCTYPE html>
   <!-- Live Telemetry Quick Metrics Ribbon -->
   <div class="metrics-bar">
     <div class="metric-item">
+      <span class="metric-label">Mode:</span>
+      <span id="metricMode" class="metric-value">Feature</span>
+    </div>
+    <div class="metric-item">
       <span class="metric-label">Giai đoạn:</span>
       <span id="metricStage" class="metric-value">Yêu cầu Gốc</span>
     </div>
@@ -1550,6 +1554,7 @@ HTML_PAGE = """<!DOCTYPE html>
     let lastEventId = "";
     let eventsList = [];
     let currentViewMode = "graph";
+    let currentWorkflowMode = "feature";
     let selectedNodeId = null;
 
     // Node Spatial Coordinates on the 1100x700 SVG Canvas (Circular Nodes)
@@ -2225,6 +2230,8 @@ HTML_PAGE = """<!DOCTYPE html>
           "main_agent_report": "BÁO CÁO NGHIỆM THU"
         };
         const stageKey = state.current_step_id || "";
+        currentWorkflowMode = state.mode || "feature";
+        document.getElementById("metricMode").textContent = currentWorkflowMode === "bug" ? "Bug" : "Feature";
         document.getElementById("metricStage").textContent = stageKey ? (STAGE_VN_MAP[stageKey] || stageKey.replace(/_/g, " ").toUpperCase()) : "CHỜ BẮT ĐẦU";
         document.getElementById("metricTask").textContent = state.active_task_id || "chưa có";
         document.getElementById("metricFingerprint").textContent = (state.verification && state.verification.revision) ? state.verification.revision.slice(0, 8) : "--------";
@@ -2348,14 +2355,23 @@ HTML_PAGE = """<!DOCTYPE html>
       icon.textContent = "⏹";
       txt.textContent = "Dừng Thử Nghiệm";
 
+      const demoMode = currentWorkflowMode;
+      const demoSteps = demoMode === "bug" ? DEMO_STEPS.map(item => ({
+        ...item,
+        step: item.step === "interview" ? "diagnosis" : item.step,
+        active: item.active === "interview" ? "diagnosis" : item.active,
+        next: item.next === "interview" ? "diagnosis" : item.next,
+        edge: item.edge.map(id => id.replace("interview", "diagnosis")),
+        title: item.step === "interview" ? "Chẩn Đoán Nguyên Nhân Gốc" : item.title
+      })) : DEMO_STEPS;
       let idx = 0;
       function playStep() {
-        const item = DEMO_STEPS[idx];
-        const fakeNodes = Object.keys(NODE_COORDS).filter(id => id !== "diagnosis").map(id => {
+        const item = demoSteps[idx];
+        const fakeNodes = Object.keys(NODE_COORDS).filter(id => id !== (demoMode === "bug" ? "interview" : "diagnosis")).map(id => {
           let st = "PENDING";
           if (id === item.active) {
             st = (id === "approval") ? "WAITING_HUMAN" : ((id === "verify" && item.step === "verify_fail") ? "FAILED" : "RUNNING");
-          } else if (DEMO_STEPS.slice(0, idx).some(s => s.active === id && s.active !== item.active)) {
+          } else if (demoSteps.slice(0, idx).some(s => s.active === id && s.active !== item.active)) {
             st = "COMPLETED";
           }
           return {
@@ -2376,7 +2392,7 @@ HTML_PAGE = """<!DOCTYPE html>
         });
 
         document.getElementById("metricStage").textContent = item.title;
-        idx = (idx + 1) % DEMO_STEPS.length;
+        idx = (idx + 1) % demoSteps.length;
       }
 
       playStep();

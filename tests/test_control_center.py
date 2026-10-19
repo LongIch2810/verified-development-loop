@@ -51,6 +51,7 @@ class ControlCenterServerTests(unittest.TestCase):
             self.assertIn("Trung tâm Điều khiển VDL", content)
             self.assertIn("Sơ đồ Chu trình Workflow", content)
             self.assertIn("workflowSvg", content)
+            self.assertIn('id="metricMode"', content)
             self.assertIn('qa:          { cx:', content)
             self.assertIn('id: "review->qa"', content)
             self.assertIn('id: "qa->complete"', content)
@@ -70,6 +71,14 @@ class ControlCenterServerTests(unittest.TestCase):
             state = json.loads(resp.read().decode("utf-8"))
             self.assertEqual(len(state["steps"]), 13)
             self.assertEqual(state["steps"][0]["id"], "raw_prompt")
+
+    def test_api_state_exposes_bug_mode_graph(self):
+        ve.emit_event(self.root, "raw_prompt.received", data={"mode": "bug"}, notify=False)
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/state") as resp:
+            state = json.loads(resp.read().decode("utf-8"))
+        self.assertEqual(state["mode"], "bug")
+        self.assertIn("diagnosis", {node["id"] for node in state["graph"]["nodes"]})
+        self.assertNotIn("interview", {node["id"] for node in state["graph"]["nodes"]})
 
     def test_cross_origin_requests_cannot_read_or_write_events(self):
         base = f"http://127.0.0.1:{self.port}"

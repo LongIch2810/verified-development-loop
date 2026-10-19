@@ -255,6 +255,12 @@ class WorkflowStateReducer:
     def reduce(root: Path, events: List[VDLEvent]) -> Dict[str, Any]:
         root = root.resolve()
         project_id = detect_project_id(root)
+        valid_events = [ev for ev in events if not ev.project_id or ev.project_id in (project_id, "default")]
+        start = max((i for i, ev in enumerate(valid_events) if ev.event_type == "raw_prompt.received"), default=0)
+        current_events = valid_events[start:]
+        bug_mode = any(ev.event_type.startswith("diagnosis.") or
+                       (ev.event_type == "raw_prompt.received" and ev.data.get("mode") == "bug")
+                       for ev in current_events)
 
         # Base steps structure
         steps: Dict[str, Dict[str, Any]] = {}
@@ -269,7 +275,6 @@ class WorkflowStateReducer:
                 "timestamp": None,
                 "evidence_reference": None,
             }
-        bug_mode = any(ev.event_type.startswith("diagnosis.") for ev in events)
         if bug_mode:
             steps["diagnosis"] = {"id": "diagnosis", "name": "Diagnosis", "order": 3,
                 "status": "PENDING", "summary": "Awaiting diagnosis", "details": {},
@@ -299,12 +304,6 @@ class WorkflowStateReducer:
         report_details: Dict[str, Any] = {"summary": None, "criteria": []}
 
         # 1. Fold events sequentially
-        valid_events = []
-        for ev in events:
-            if ev.project_id and ev.project_id not in (project_id, "default"):
-                continue
-            valid_events.append(ev)
-
         for ev in valid_events:
             session_id = ev.session_id or session_id
             if ev.plan_id:
@@ -624,6 +623,7 @@ class WorkflowStateReducer:
         return {
             "project_id": project_id,
             "project_root": str(root),
+            "mode": "bug" if bug_mode else "feature",
             "session_id": session_id,
             "active_plan_id": active_plan_id,
             "active_task_id": active_task_id,
