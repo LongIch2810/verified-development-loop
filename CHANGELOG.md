@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Clarify when the skill is selected and when a feature workflow actually starts.
+
 ## 0.1.0 - 2026-10-19
 
 - Publish repository documentation in English.

@@ -2,7 +2,7 @@
 
 VDL is a reusable **agent skill** for software projects. When explicitly requested, it guides an agent through a development process backed by evidence: clarify requirements → write a Spec and Plan → obtain human approval → implement with TDD → verify → conduct independent code review → run QA → report the outcome.
 
-The skill helps prevent unapproved scope changes, skipped checks, and claims of completion without evidence. Ordinary coding requests, questions, and workflow maintenance do not activate it.
+The skill helps prevent unapproved scope changes, skipped checks, and claims of completion without evidence. It applies when you name the verified development loop (including "chạy loop") or ask about its steps or approval gates. Questions about the process do not start a feature workflow; ask the agent to run it for a feature when you want to begin. Ordinary coding, bug fixes, and workflow maintenance do not activate it.
 
 ## Repository contents
 
