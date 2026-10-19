@@ -79,7 +79,7 @@ Illustration only; replace it with code for the target repository. Suppose `norm
 | --- | --- | --- | --- |
 | `test_trims_outer_spaces` | Trim outer whitespace | `"  Ada  "` | `"Ada"` |
 | `test_rejects_whitespace_only` | Reject blank name | `"   "` | `ValueError` |
-| `test_preserves_unicode_and_internal_spaces` | Preserve valid content | `"  Nguyễn  An  "` | `"Nguyễn  An"` |
+| `test_preserves_unicode_and_internal_spaces` | Preserve valid content | `"  Zoë  Adams  "` | `"Zoë  Adams"` |
 
 **Unit test — complete source for this Task's `test_code`:**
 
@@ -100,7 +100,7 @@ class NormalizeNameTests(unittest.TestCase):
             normalize_name("   ")
 
     def test_preserves_unicode_and_internal_spaces(self):
-        self.assertEqual(normalize_name("  Nguyễn  An  "), "Nguyễn  An")
+        self.assertEqual(normalize_name("  Zoë  Adams  "), "Zoë  Adams")
 ```
 
 **Integration test:** Not applicable because this example has no collaborating component boundary.
