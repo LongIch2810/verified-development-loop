@@ -426,6 +426,13 @@ HTML_PAGE = """<!DOCTYPE html>
       margin-bottom: 0.85rem;
       flex-wrap: wrap;
     }
+    .mode-explainer {
+      margin: 0 0 0.85rem;
+      color: var(--text-muted);
+      font-size: 0.8125rem;
+      line-height: 1.5;
+    }
+    .mode-explainer strong { color: var(--accent-cyan); }
     .legend-group {
       display: flex;
       align-items: center;
@@ -1294,6 +1301,14 @@ HTML_PAGE = """<!DOCTYPE html>
         </select>
       </div>
 
+      <div class="control-group">
+        <label for="demoModeSelect">Xem thử:</label>
+        <select id="demoModeSelect">
+          <option value="feature">Feature</option>
+          <option value="bug">Bug</option>
+        </select>
+      </div>
+
       <button id="btnDemoMode" class="demo-btn" onclick="toggleDemoMode()" title="Chạy mô phỏng để kiểm tra hiệu ứng sáng node và boots tốc độ">
         <span id="demoBtnIcon">▶</span> <span id="demoBtnText">Thử Nghiệm FX</span>
       </button>
@@ -1367,6 +1382,8 @@ HTML_PAGE = """<!DOCTYPE html>
           <span class="legend-item"><span class="legend-color-dot dot-sapphire"></span>Đã chạy qua</span>
         </div>
       </div>
+
+      <p class="mode-explainer"><strong>Bug mode:</strong> Đọc lỗi cũ → Chẩn đoán (tái hiện, tìm nguyên nhân) → Bug Spec &amp; kế hoạch sửa → duyệt → TDD → kiểm thử, review, QA. Chọn Bug ở “Xem thử”, rồi bấm “Thử Nghiệm FX” để xem luồng mô phỏng.</p>
 
       <!-- VIEW 1: Dynamic SVG Workflow Loop Graph -->
       <div id="graphContainer">
@@ -1554,7 +1571,6 @@ HTML_PAGE = """<!DOCTYPE html>
     let lastEventId = "";
     let eventsList = [];
     let currentViewMode = "graph";
-    let currentWorkflowMode = "feature";
     let selectedNodeId = null;
 
     // Node Spatial Coordinates on the 1100x700 SVG Canvas (Circular Nodes)
@@ -2230,8 +2246,8 @@ HTML_PAGE = """<!DOCTYPE html>
           "main_agent_report": "BÁO CÁO NGHIỆM THU"
         };
         const stageKey = state.current_step_id || "";
-        currentWorkflowMode = state.mode || "feature";
-        document.getElementById("metricMode").textContent = currentWorkflowMode === "bug" ? "Bug" : "Feature";
+        const displayedMode = isDemoRunning ? document.getElementById("demoModeSelect").value : state.mode;
+        document.getElementById("metricMode").textContent = (displayedMode === "bug" ? "Bug" : "Feature") + (isDemoRunning ? " (xem thử)" : "");
         document.getElementById("metricStage").textContent = stageKey ? (STAGE_VN_MAP[stageKey] || stageKey.replace(/_/g, " ").toUpperCase()) : "CHỜ BẮT ĐẦU";
         document.getElementById("metricTask").textContent = state.active_task_id || "chưa có";
         document.getElementById("metricFingerprint").textContent = (state.verification && state.verification.revision) ? state.verification.revision.slice(0, 8) : "--------";
@@ -2339,6 +2355,7 @@ HTML_PAGE = """<!DOCTYPE html>
       const btn = document.getElementById("btnDemoMode");
       const icon = document.getElementById("demoBtnIcon");
       const txt = document.getElementById("demoBtnText");
+      const modeSelect = document.getElementById("demoModeSelect");
 
       if (isDemoRunning) {
         clearInterval(demoTimer);
@@ -2346,6 +2363,7 @@ HTML_PAGE = """<!DOCTYPE html>
         btn.classList.remove("demo-active");
         icon.textContent = "▶";
         txt.textContent = "Thử Nghiệm FX";
+        modeSelect.disabled = false;
         refreshState();
         return;
       }
@@ -2354,8 +2372,10 @@ HTML_PAGE = """<!DOCTYPE html>
       btn.classList.add("demo-active");
       icon.textContent = "⏹";
       txt.textContent = "Dừng Thử Nghiệm";
+      modeSelect.disabled = true;
 
-      const demoMode = currentWorkflowMode;
+      const demoMode = modeSelect.value;
+      document.getElementById("metricMode").textContent = (demoMode === "bug" ? "Bug" : "Feature") + " (xem thử)";
       const demoSteps = demoMode === "bug" ? DEMO_STEPS.map(item => ({
         ...item,
         step: item.step === "interview" ? "diagnosis" : item.step,

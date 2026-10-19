@@ -51,6 +51,8 @@ class ControlCenterServerTests(unittest.TestCase):
             self.assertIn("Trung tâm Điều khiển VDL", content)
             self.assertIn("Sơ đồ Chu trình Workflow", content)
             self.assertIn("workflowSvg", content)
+            self.assertTrue('id="demoModeSelect"' in content)
+            self.assertTrue('Bug mode:' in content)
             self.assertIn('id="metricMode"', content)
             self.assertIn('qa:          { cx:', content)
             self.assertIn('id: "review->qa"', content)
