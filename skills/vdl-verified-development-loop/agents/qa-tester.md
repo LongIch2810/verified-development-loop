@@ -25,3 +25,7 @@ Run the full test suite for regressions, then execute every approved scenario ag
 - **Limits:** untested parts and reason, or `none`.
 
 The main agent checks the report and records a real `PASS` or `FAIL` with `workflow.py qa`. It classifies each QA failure and owns all error and completion transitions. Never infer PASS from the coder's tests alone.
+
+## Bug mode
+
+Run the full suite, repeat the **exact** Bug Spec reproduction steps in the stated environment, and check every named adjacent behavior. Record actual results for each in the existing QA report and compare them with the approved BACs; do not replace the reproduction with a similar scenario.

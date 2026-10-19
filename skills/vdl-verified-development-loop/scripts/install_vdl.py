@@ -173,7 +173,7 @@ def install_vdl(target_root: Path, codex_hooks: bool = True, claude_hooks: bool 
     for d in [
         "plans/drafts", "plans/active", "plans/completed",
         "tasks/active", "tasks/completed",
-        "errors", "evidence", "specs/drafts", "specs/active", "specs/completed",
+        "errors", "evidence", "reports", "specs/drafts", "specs/active", "specs/completed",
     ]:
         dir_path = target_root / ".verified-development-loop" / d
         dir_path.mkdir(parents=True, exist_ok=True)

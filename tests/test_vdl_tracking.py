@@ -167,6 +167,22 @@ class VDLEventTrackingTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    def save_human_report(self, status):
+        source = self.root / ".verified-development-loop/evidence/task-alpha-1/human-report.md"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        body = (f"# Human report\n\n- **Task:** task-alpha-1\n- **Status:** {status}\n\n"
+                "## Overview\n\n- **Plan:** plan-alpha\n- **Spec:** plan-alpha\n- **Code:** test branch\n"
+                "- **Fix rounds:** 1/3\n- **Review rounds:** 1/3\n- **QA rounds:** 1/3\n\n"
+                "## Commands and Results\n\n- test: exit 0\n\n"
+                "## Review and QA Rounds\n\n- review and QA evidence\n\n"
+                "## Remaining Checks\n\n- none\n\n## Evidence Paths\n\n- evidence/task-alpha-1\n\n")
+        if status == "blocked":
+            body += ("## Open Errors\n\n- err-persists\n\n## Attempts\n\n- three rounds\n\n"
+                     "## Why Not Converged\n\n- still failing\n\n## Human Options\n\n"
+                     "- retry, revise, accept, cancel\n\n## Human Decision\n\n")
+        source.write_text(body, encoding="utf-8")
+        return w.write_report(self.root, "task-alpha-1", status, source)
+
     def test_event_schema_and_validation(self):
         ev = ve.VDLEvent.from_dict({
             "event_id": "test-123",
@@ -298,6 +314,7 @@ class VDLEventTrackingTests(unittest.TestCase):
         qa_state = ve.WorkflowStateReducer.reduce(self.root, store.read_all())
         self.assertEqual({s["id"]: s for s in qa_state["steps"]}["qa"]["status"], "COMPLETED")
         self.assertEqual(qa_state["graph"]["next_node_id"], "complete")
+        self.save_human_report("completed")
         w.complete_task(self.root, "task-alpha-1", ["task 1 works reliably"])
         w.complete_plan(self.root, "plan-alpha", ["plan works reliably"])
         events = store.read_all()
@@ -334,6 +351,10 @@ class VDLEventTrackingTests(unittest.TestCase):
             w.verify(self.root, "task-alpha-1")
             if round_number < 3:
                 w.evaluate(self.root, "task-alpha-1", "err-persists", "persists", "still failing", None)
+
+        self.save_human_report("blocked")
+        reason = w.read(w.path(self.root, "tasks", "active", "task-alpha-1"))["pending_block_reason"]
+        w.block_task(self.root, "task-alpha-1", reason)
 
         events = store.read_all()
         types = [e.event_type for e in events]

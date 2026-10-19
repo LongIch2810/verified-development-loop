@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "skills/vdl-verified-development-loop/scripts"))
 import workflow as w
+import vdl_events as ve
 
 
 class WorkflowGates(unittest.TestCase):
@@ -39,6 +40,34 @@ class WorkflowGates(unittest.TestCase):
         report.parent.mkdir(parents=True, exist_ok=True)
         report.write_text(f"# QA\n\n**Overall Result:** {result}\n\n## Regression Results\n\nfull suite: 1 passed; output: ok\n\n## Scenario Results\n\nQA-01: command run; output: {result}\n", encoding="utf-8")
         w.qa(self.root, task_id, result, report, "qa_tester")
+
+    def report(self, status, task_id="t1"):
+        source = self.root / ".verified-development-loop" / "evidence" / task_id / "human-report.md"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        body = (f"# Human report\n\n- **Task:** {task_id}\n- **Status:** {status}\n\n"
+                "## Overview\n\n- **Plan:** p1\n- **Spec:** p1\n- **Code:** test branch\n"
+                "- **Fix rounds:** 0/3\n- **Review rounds:** 1/3\n- **QA rounds:** 1/3\n\n"
+                "## Commands and Results\n\n- test: exit 0\n\n"
+                "## Review and QA Rounds\n\n- review and QA evidence\n\n"
+                "## Remaining Checks\n\n- none\n\n"
+                "## Evidence Paths\n\n- .verified-development-loop/evidence\n\n")
+        if status != "completed":
+            body += ("## Open Errors\n\n- error evidence\n\n## Attempts\n\n- round result\n\n"
+                     "## Why Not Converged\n\n- hypothesis\n\n## Human Options\n\n"
+                     "- another round, revise Spec, accept errors, cancel\n\n## Human Decision\n\n")
+        if status == "completed-accepted":
+            body += "## Accepted Errors\n\n- **Error IDs:** e-minor\n- **Accepted by:** Human\n- **Accepted on:** 2026-10-19\n"
+        source.write_text(body, encoding="utf-8")
+        return w.write_report(self.root, task_id, status, source)
+
+    def complete(self, task_id="t1", acceptance=None):
+        self.report("completed", task_id)
+        w.complete_task(self.root, task_id, acceptance or ["task works"])
+
+    def finish_block(self, task_id="t1"):
+        reason = self.task()["pending_block_reason"]
+        self.report("blocked", task_id)
+        w.block_task(self.root, task_id, reason)
 
     def test_no_execution_before_approval(self):
         with self.assertRaises(ValueError):
@@ -124,7 +153,7 @@ class WorkflowGates(unittest.TestCase):
         w.review(self.root, "t1", "PASS", [], "code_reviewer")
         w.evaluate(self.root, "t1", "e1", "resolved", "passing verification and review", "assert output")
         self.qa_result("PASS")
-        w.complete_task(self.root, "t1", ["task works"])
+        self.complete()
         w.complete_plan(self.root, "p1", ["plan works"])
         self.assertTrue(w.path(self.root, "tasks", "completed", "t1").exists())
         self.assertTrue(w.path(self.root, "plans", "completed", "p1").exists())
@@ -147,6 +176,7 @@ class WorkflowGates(unittest.TestCase):
             if round_number < 3:
                 w.evaluate(self.root, "t1", "e1", "persists", "same assertion failure", None)
                 self.assertEqual(self.task()["status"], "active")
+        self.finish_block()
         self.assertEqual(self.task()["status"], "blocked")
         self.assertEqual(self.task()["fix_round"], 3)
         self.assertEqual(w.read(self.root / ".verified-development-loop" / "errors" / "e1.md")["recurrences"], 2)
@@ -172,7 +202,7 @@ class WorkflowGates(unittest.TestCase):
         w.evaluate(self.root, "t1", "e1", "resolved", "review confirms first fixed", None)
         w.evaluate(self.root, "t1", "e2", "resolved", "review confirms second fixed", None)
         self.qa_result("PASS")
-        w.complete_task(self.root, "t1", ["task works"])
+        self.complete()
         for error_id in ("e1", "e2"):
             error = w.read(self.root / ".verified-development-loop" / "errors" / f"{error_id}.md")
             self.assertEqual((error["fix_attempts"], error["recurrences"], error["status"]), (1, 0, "RESOLVED"))
@@ -212,6 +242,7 @@ class WorkflowGates(unittest.TestCase):
                 self.assertFalse(w.verify(self.root, "t1"))
             else:
                 self.assertFalse(w.verify(self.root, "t1"))
+        self.finish_block()
         self.assertEqual(self.task()["status"], "blocked")
         self.assertEqual(self.task()["fix_round"], 3)
         self.assertEqual(w.read(w.path(self.root, "plans", "active", "p1"))["execution_state"], "waiting_human")
@@ -247,13 +278,13 @@ class WorkflowGates(unittest.TestCase):
         self.assertTrue(w.verify(self.root, "t1"))
         w.review(self.root, "t1", "PASS", [], "code_reviewer")
         self.qa_result("PASS")
-        w.complete_task(self.root, "t1", ["task works"])
+        self.complete()
         with self.assertRaises(ValueError):
             w.complete_plan(self.root, "p1", ["plan works"])
         self.assertTrue(w.verify(self.root, "t2"))
         w.review(self.root, "t2", "PASS", [], "code_reviewer")
         self.qa_result("PASS", "t2")
-        w.complete_task(self.root, "t2", ["second works"])
+        self.complete("t2", ["second works"])
         w.complete_plan(self.root, "p1", ["plan works"])
         self.assertTrue(w.path(self.root, "plans", "completed", "p1").exists())
 
@@ -262,9 +293,20 @@ class WorkflowGates(unittest.TestCase):
         self.assertTrue(w.verify(self.root, "t1"))
         w.review(self.root, "t1", "PASS", [], "code_reviewer")
         self.qa_result("PASS")
-        w.complete_task(self.root, "t1", ["task works"])
+        self.complete()
         w.path(self.root, "specs", "active", "p1").unlink()
         with self.assertRaisesRegex(ValueError, "active Spec"):
+            w.complete_plan(self.root, "p1", ["plan works"])
+
+    def test_plan_cannot_complete_after_report_becomes_empty(self):
+        self.approve()
+        self.assertTrue(w.verify(self.root, "t1"))
+        w.review(self.root, "t1", "PASS", [], "code_reviewer")
+        self.qa_result("PASS")
+        self.complete()
+        task = w.read(w.path(self.root, "tasks", "completed", "t1"))
+        (self.root / task["latest_report"]).write_text("", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "linked report"):
             w.complete_plan(self.root, "p1", ["plan works"])
 
     def test_unavailable_command_never_passes(self):
@@ -276,7 +318,9 @@ class WorkflowGates(unittest.TestCase):
         log = w.read(self.root / self.task()["verification_evidence"])
         self.assertEqual(log["status"], "UNVERIFIED")
         self.assertIsNone(log["commands"][0]["exit_code"])
-        w.block_task(self.root, "t1", "required tool unavailable")
+        with self.assertRaisesRegex(ValueError, "report"):
+            w.block_task(self.root, "t1", "required tool unavailable")
+        self.finish_block()
         self.assertEqual(self.task()["status"], "blocked")
 
     def test_qa_requires_review_and_blocks_completion_without_pass(self):
@@ -289,7 +333,7 @@ class WorkflowGates(unittest.TestCase):
             w.complete_task(self.root, "t1", ["task works"])
         self.qa_result("PASS")
         self.assertEqual(w.read(self.root / self.task()["qa_evidence"])["status"], "PASS")
-        w.complete_task(self.root, "t1", ["task works"])
+        self.complete()
         acceptance = w.read(self.root / w.read(w.path(self.root, "tasks", "completed", "t1"))["acceptance_evidence"])
         self.assertTrue(acceptance["qa"])
 
@@ -314,6 +358,8 @@ class WorkflowGates(unittest.TestCase):
             w.review(self.root, "t1", "PASS", [], "code_reviewer")
             self.qa_result("FAIL")
             w.evaluate(self.root, "t1", "e-qa", "persists", "QA-01 still fails", None)
+            if round_number == 3:
+                self.finish_block()
             self.assertEqual(self.task()["status"], "active" if round_number < 3 else "blocked")
         self.assertEqual(w.read(self.root / ".verified-development-loop/errors/e-qa.md")["fix_attempts"], 3)
 
@@ -329,7 +375,7 @@ class WorkflowGates(unittest.TestCase):
         w.evaluate(self.root, "t1", "e-env", "resolved", "server started; all QA scenarios passed", None)
         self.assertEqual(self.task()["fix_round"], 0)
         self.assertEqual(w.read(self.root / ".verified-development-loop/errors/e-env.md")["recurrences"], 1)
-        w.complete_task(self.root, "t1", ["task works"])
+        self.complete()
 
     def test_failed_qa_run_must_be_recorded_even_if_retry_passes(self):
         self.approve()
@@ -352,6 +398,7 @@ class WorkflowGates(unittest.TestCase):
             if round_number < 3:
                 w.evaluate(self.root, "t1", "e1", "persists", "same review finding", None)
                 self.assertEqual(self.task()["status"], "active")
+        self.finish_block()
         self.assertEqual(self.task()["status"], "blocked")
         self.assertEqual(self.task()["fix_round"], 3)
 
@@ -361,8 +408,117 @@ class WorkflowGates(unittest.TestCase):
         w.review(self.root, "t1", "PASS", [], "code_reviewer")
         self.qa_result("FAIL")
         w.record_error(self.root, "t1", "e-spec", "expected behavior conflicts", "QA report", None, "spec")
+        self.finish_block()
         self.assertEqual(self.task()["status"], "blocked")
         self.assertEqual(w.read(w.path(self.root, "plans", "active", "p1"))["execution_state"], "waiting_human")
+
+    def test_completed_requires_saved_report(self):
+        self.approve()
+        self.assertTrue(w.verify(self.root, "t1"))
+        w.review(self.root, "t1", "PASS", [], "code_reviewer")
+        self.qa_result("PASS")
+        with self.assertRaisesRegex(ValueError, "completed report"):
+            w.complete_task(self.root, "t1", ["task works"])
+        self.assertEqual(self.task()["status"], "active")
+        ref = self.report("completed")
+        (self.root / ref).write_text("", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "empty"):
+            w.complete_task(self.root, "t1", ["task works"])
+
+    def test_blocked_requires_saved_report(self):
+        self.approve()
+        with self.assertRaisesRegex(ValueError, "blocked report"):
+            w.block_task(self.root, "t1", "human decision required")
+        self.assertEqual(self.task()["status"], "active")
+        self.assertEqual(self.task()["pending_block_reason"], "human decision required")
+        ref = self.report("blocked")
+        w.block_task(self.root, "t1", "human decision required")
+        self.assertEqual(self.task()["latest_report"], ref)
+        self.assertTrue((self.root / ref).is_file())
+
+    def test_blocked_report_contains_continuation_context(self):
+        self.approve()
+        with self.assertRaisesRegex(ValueError, "report"):
+            w.block_task(self.root, "t1", "QA-01 still fails")
+        source = self.root / ".verified-development-loop/evidence/t1/human-report.md"
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text(
+            "# Human report\n\n- **Task:** t1\n- **Status:** blocked\n\n"
+            "## Overview\n\n- **Plan:** p1 (.verified-development-loop/plans/active/p1.md)\n"
+            "- **Spec:** p1 (.verified-development-loop/specs/active/p1.md)\n"
+            "- **Code:** base commit on test branch\n- **Fix rounds:** 3/3\n"
+            "- **Review rounds:** 3/3\n- **QA rounds:** 3/3\n- **Outcome:** QA-01 still fails\n\n"
+            "## Commands and Results\n\n| Command | Result | Evidence |\n| --- | --- | --- |\n"
+            "| python -m unittest | exit 1; QA-01 fails | .verified-development-loop/evidence/t1/qa.md |\n\n"
+            "## Review and QA Rounds\n\n| Round | Review | QA | Evidence |\n| --- | --- | --- | --- |\n"
+            "| 1/3 | PASS | FAIL QA-01 | .verified-development-loop/evidence/t1/qa.md |\n"
+            "| 2/3 | PASS | FAIL QA-01 | .verified-development-loop/evidence/t1/qa.md |\n"
+            "| 3/3 | PASS | FAIL QA-01 | .verified-development-loop/evidence/t1/qa.md |\n\n"
+            "## Remaining Checks\n\n- Production data not checked; use test fixtures only.\n\n"
+            "## Evidence Paths\n\n- .verified-development-loop/evidence/t1/qa.md\n\n"
+            "## Open Errors\n\n| ID | Severity | Classification | File:line or reproduction | Evidence path |\n"
+            "| --- | --- | --- | --- | --- |\n"
+            "| e-qa | serious | code | Run QA-01 with test fixture | .verified-development-loop/evidence/t1/qa.md |\n\n"
+            "## Attempts\n\n| Round | Change | Result |\n| --- | --- | --- |\n"
+            "| 1/3 | Repair branch | QA-01 FAIL |\n| 2/3 | Repair validation | QA-01 FAIL |\n"
+            "| 3/3 | Repair state | QA-01 FAIL |\n\n"
+            "## Why Not Converged\n\n- Hypothesis: the test fixture misses a dependent state; unverified.\n\n"
+            "## Human Options\n\n- Another round with a different approach: requires new authorization.\n"
+            "- Revise Spec or Plan: requires approval and new Plan ID.\n"
+            "- Accept remaining errors: leaves QA-01 failing; serious only.\n"
+            "- Cancel: stops the work.\n\n## Human Decision\n\n",
+            encoding="utf-8",
+        )
+        ref = w.write_report(self.root, "t1", "blocked", source)
+        w.block_task(self.root, "t1", "QA-01 still fails")
+        saved = (self.root / ref).read_text(encoding="utf-8")
+        for required in ("e-qa", "serious", "QA-01", "1/3", "2/3", "3/3", "Human Options", "Human Decision"):
+            self.assertIn(required, saved)
+        self.assertEqual(self.task()["latest_report"], ref)
+
+    def test_new_report_updates_task_without_overwriting_previous(self):
+        self.approve()
+        first = self.report("completed")
+        first_text = (self.root / first).read_text(encoding="utf-8")
+        second = self.report("completed")
+        self.assertNotEqual(first, second)
+        self.assertEqual((self.root / first).read_text(encoding="utf-8"), first_text)
+        self.assertEqual(self.task()["latest_report"], second)
+        self.assertIn(second, w.path(self.root, "tasks", "active", "t1").read_text(encoding="utf-8"))
+        self.assertEqual([event.event_type for event in ve.EventStore(self.root).read_all()].count("report.recorded"), 2)
+
+    def test_report_write_failure_keeps_task_active(self):
+        self.approve()
+        with self.assertRaisesRegex(ValueError, "report input"):
+            w.write_report(self.root, "t1", "completed", self.root / "missing-report.md")
+        self.assertEqual(self.task()["status"], "active")
+        self.assertIsNone(self.task().get("latest_report"))
+
+    def test_accepted_minor_error_requires_human_and_report(self):
+        self.approve()
+        self.assertTrue(w.verify(self.root, "t1"))
+        w.review(self.root, "t1", "PASS", [], "code_reviewer")
+        self.qa_result("FAIL")
+        w.record_error(self.root, "t1", "e-minor", "minor display issue", "QA-01 evidence", None, "code", "minor")
+        with self.assertRaisesRegex(ValueError, "completed-accepted report"):
+            w.complete_task_accepted(self.root, "t1", ["task works"], ["e-minor"], "Human", "2026-10-19")
+        ref = self.report("completed-accepted")
+        w.complete_task_accepted(self.root, "t1", ["task works"], ["e-minor"], "Human", "2026-10-19")
+        w.complete_plan(self.root, "p1", ["plan works"], accepted=True)
+        task = w.read(w.path(self.root, "tasks", "completed", "t1"))
+        self.assertEqual(task["latest_report"], ref)
+        self.assertEqual(task["completion_kind"], "accepted_errors")
+        self.assertEqual(w.read(self.root / ".verified-development-loop/errors/e-minor.md")["status"], "OPEN")
+
+    def test_blocker_cannot_be_accepted(self):
+        self.approve()
+        self.assertTrue(w.verify(self.root, "t1"))
+        w.review(self.root, "t1", "PASS", [], "code_reviewer")
+        self.qa_result("FAIL")
+        w.record_error(self.root, "t1", "e-minor", "blocking failure", "QA-01 evidence", None, "code", "blocker")
+        self.report("completed-accepted")
+        with self.assertRaisesRegex(ValueError, "Blocker"):
+            w.complete_task_accepted(self.root, "t1", ["task works"], ["e-minor"], "Human", "2026-10-19")
 
 
 if __name__ == "__main__":

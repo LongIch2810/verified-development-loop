@@ -52,6 +52,8 @@ def write(path, data):
             lines.append("")
     if kind == "tasks":
         lines += [f"**Plan:** {data.get('plan_id', '')}", "", f"{data.get('title', '')}", ""]
+        if data.get("latest_report"):
+            lines += [f"**Latest report:** {data['latest_report']}", ""]
         if data.get("test_code"):
             lines += ["## Test code", "", data["test_code"], ""]
         if data.get("qa_plan"):

@@ -1558,6 +1558,7 @@ HTML_PAGE = """<!DOCTYPE html>
       prompt:      { cx: 95,  cy: 80,  r: 26, icon: "💬", label: "Yêu cầu Gốc", sub: "User Prompt" },
       read_errors: { cx: 275, cy: 80,  r: 26, icon: "📖", label: "Đọc Lỗi Cũ", sub: "Ký ức lỗi" },
       interview:   { cx: 470, cy: 80,  r: 26, icon: "❓", label: "Phỏng Vấn", sub: "Làm rõ yêu cầu" },
+       diagnosis:   { cx: 470, cy: 80,  r: 26, icon: "🔬", label: "Chẩn Đoán", sub: "Nguyên nhân gốc" },
       proposal:    { cx: 665, cy: 80,  r: 26, icon: "📋", label: "Đặc Tả & Plan", sub: "Kế hoạch chi tiết" },
       approval:    { cx: 890, cy: 80,  r: 28, icon: "🛡️", label: "Cổng Duyệt", sub: "Chờ người duyệt", isGate: true },
 
@@ -1581,12 +1582,15 @@ HTML_PAGE = """<!DOCTYPE html>
       // Tầng 1: Tuần tự ngang (Cyan)
       { id: "prompt->read_errors", from: "prompt", to: "read_errors", color: "cyan", marker: "arrowCyan", d: "M 121 80 L 247 80" },
       { id: "read_errors->interview", from: "read_errors", to: "interview", color: "cyan", marker: "arrowCyan", d: "M 301 80 L 442 80" },
+       { id: "read_errors->diagnosis", from: "read_errors", to: "diagnosis", color: "cyan", marker: "arrowCyan", d: "M 301 80 L 442 80" },
       { id: "interview->proposal", from: "interview", to: "proposal", color: "cyan", marker: "arrowCyan", d: "M 496 80 L 637 80" },
+       { id: "diagnosis->proposal", from: "diagnosis", to: "proposal", color: "cyan", marker: "arrowCyan", d: "M 496 80 L 637 80" },
       { id: "proposal->approval", from: "proposal", to: "approval", color: "cyan", marker: "arrowCyan", d: "M 691 80 L 860 80" },
 
       // Chu trình 1: Yêu cầu sửa (Hành lang Đỉnh y = 18 - Amber / Cam)
       // Xuất phát từ đỉnh Cổng Duyệt (890, 52), đi thẳng đứng lên y=28, cua góc 90° sang trái ra y=18, chạy thẳng ngang đến x=480, cua góc 90° xuống x=470, kéo dài đoạn thẳng 24px cắm thẳng đứng vào đỉnh Phỏng Vấn (470, 52)
       { id: "approval->interview", from: "approval", to: "interview", color: "amber", marker: "arrowAmber", d: "M 890 52 L 890 28 Q 890 18 880 18 L 480 18 Q 470 18 470 28 L 470 52", label: "Yêu cầu sửa ↺", labelX: 680, labelY: 18 },
+       { id: "approval->diagnosis", from: "approval", to: "diagnosis", color: "amber", marker: "arrowAmber", d: "M 890 52 L 890 28 Q 890 18 880 18 L 480 18 Q 470 18 470 28 L 470 52", label: "Yêu cầu sửa ↺", labelX: 680, labelY: 18 },
 
       // Chuyển tiếp: Đã duyệt xuống Tầng 2 (Hành lang Giữa 1: y = 185 - Emerald / Xanh lá)
       // Xuất phát từ đáy Cổng Duyệt (890, 153), đi thẳng xuống y=175, cua góc 90° sang trái ra y=185, chạy thẳng ngang đến x=105, cua góc 90° xuống x=95, kéo dài đoạn thẳng 67px cắm thẳng đứng vào đỉnh Nhiệm Vụ (95, 262)
@@ -1717,6 +1721,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
       // 1. Render Edges with Semantic Colors, Speed Boost FX & Label Pills
       EDGE_PATHS.forEach(edge => {
+         if (!nodeStatusMap[edge.from] || !nodeStatusMap[edge.to]) return;
         const isActive = activeEdges.has(edge.id);
         const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
 
@@ -1822,6 +1827,7 @@ HTML_PAGE = """<!DOCTYPE html>
 
       // 2. Render Circular Nodes with Multi-Tier Luminosity & Upcoming State
       Object.keys(NODE_COORDS).forEach(nodeId => {
+         if (!nodeStatusMap[nodeId]) return;
         const cfg = NODE_COORDS[nodeId];
         const stateNode = nodeStatusMap[nodeId] || { status: "PENDING", is_active: false };
         const status = stateNode.status || "PENDING";
@@ -2206,6 +2212,7 @@ HTML_PAGE = """<!DOCTYPE html>
           "raw_prompt": "YÊU CẦU GỐC",
           "read_errors": "ĐỌC LỖI CŨ",
           "interview": "PHỎNG VẤN",
+          "diagnosis": "CHẨN ĐOÁN",
           "spec": "ĐẶC TẢ (SPEC)",
           "plan": "KẾ HOẠCH (PLAN)",
           "human_approval": "CHỜ DUYỆT CON NGƯỜI",
@@ -2344,7 +2351,7 @@ HTML_PAGE = """<!DOCTYPE html>
       let idx = 0;
       function playStep() {
         const item = DEMO_STEPS[idx];
-        const fakeNodes = Object.keys(NODE_COORDS).map(id => {
+        const fakeNodes = Object.keys(NODE_COORDS).filter(id => id !== "diagnosis").map(id => {
           let st = "PENDING";
           if (id === item.active) {
             st = (id === "approval") ? "WAITING_HUMAN" : ((id === "verify" && item.step === "verify_fail") ? "FAILED" : "RUNNING");

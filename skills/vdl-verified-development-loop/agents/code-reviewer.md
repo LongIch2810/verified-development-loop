@@ -26,3 +26,7 @@ Inspect the diff and connected code against the approved behavior. Check correct
 - **Limits:** what could not be checked, or `none`.
 
 `PASS` means no blocking finding in the reviewed scope. The main agent records `PASS` or `FAIL` with `workflow.py review`; `BLOCKED` is a handoff problem and must not be recorded as a review result.
+
+## Bug mode
+
+Compare the diff with the investigator's supported root cause and approved Bug Spec. Confirm the repair addresses that cause rather than its visible symptom, the regression test would fail without the repair using recorded Red evidence or a safe read-only check, and no change falls outside the approved scope. Treat a missing or unconvincing Red result as a finding.

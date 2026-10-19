@@ -60,6 +60,8 @@ def active_task(root, task_id):
         fail("approved active plan required")
     if task["status"] == "blocked":
         fail("task is blocked; wait for human decision")
+    if task.get("pending_block_reason"):
+        fail("task awaits a blocked report and block-task")
     return p, task
 
 
@@ -87,9 +89,133 @@ def evidence(root, kind, task_id, data):
     return p.relative_to(root).as_posix()
 
 
+def record_diagnosis(root, plan_id, report, result, classification, confidence):
+    identifier(plan_id)
+    report_path = (report if report.is_absolute() else root / report).resolve()
+    evidence_dir = (root / ".verified-development-loop" / "evidence" / plan_id).resolve()
+    if report_path.parent != evidence_dir or report_path.suffix != ".md" or not report_path.is_file():
+        fail("investigator report must be Markdown in this Plan's evidence directory")
+    prior = list(evidence_dir.glob("diagnosis-*.md"))
+    if len(prior) >= 2:
+        fail("two diagnosis rounds exhausted; ask the human")
+    if result not in ("REPRODUCED", "NOT_REPRODUCED") or classification not in ("code", "spec", "environment", "uncertain") or confidence not in ("high", "medium", "low"):
+        fail("diagnosis result, classification, and confidence required")
+    report_text = report_path.read_text(encoding="utf-8")
+    for field, value in (("Result", result), ("Classification", classification), ("Confidence", confidence)):
+        if not re.search(rf"\*\*{field}:\*\*\s*{value}\b", report_text):
+            fail(f"investigator report must state {field}: {value}")
+    cause = re.search(r"^\s*(?:-\s*)?\*\*Root cause:\*\*\s*(.+)$", report_text, re.MULTILINE)
+    if result == "REPRODUCED" and classification == "code" and confidence != "low":
+        if not cause or not re.search(r"\b[^\s:]+:\d+\b", cause.group(1)) or "**Evidence:**" not in report_text:
+            fail("supported code diagnosis requires root-cause file:line and an evidence section")
+    ref = evidence(root, "diagnosis", plan_id, {"plan_id": plan_id, "round": len(prior) + 1,
+        "result": result, "classification": classification, "confidence": confidence,
+        "root_cause": cause.group(1) if cause else None, "report": report_path.relative_to(root).as_posix(),
+        "report_text": report_text, "revision": snapshot(root)})
+    ready = result == "REPRODUCED" and classification == "code" and confidence in ("high", "medium")
+    safe_emit(root, "diagnosis.completed", "COMPLETED" if ready else "BLOCKED",
+              plan_id=plan_id, agent_id="investigator", evidence_reference=ref,
+              data={"result": result, "classification": classification, "confidence": confidence, "round": len(prior) + 1})
+    return ref
+
+
+def require_diagnosis(root, record, unchanged=False):
+    if record.get("mode", "feature") != "bug":
+        return None
+    ref = record.get("diagnosis_evidence")
+    if not ref:
+        fail("bug mode requires diagnosis evidence")
+    p = (root / ref).resolve()
+    expected = (root / ".verified-development-loop" / "evidence" / record["plan_id"]).resolve()
+    if p.parent != expected or not p.is_file() or not p.name.startswith("diagnosis-"):
+        fail("linked diagnosis evidence is missing or outside this Plan")
+    data = read(p)
+    report = (root / data["report"]).resolve()
+    if report.parent != expected:
+        fail("investigator report is outside this Plan's evidence directory")
+    if (data["plan_id"] != record["plan_id"] or data["result"] != "REPRODUCED"
+            or data["classification"] != "code" or data["confidence"] not in ("high", "medium")
+            or not report.is_file() or report.read_text(encoding="utf-8") != data["report_text"]):
+        fail("supported reproduced code diagnosis required")
+    if unchanged and data["revision"] != snapshot(root):
+        fail("application code changed since diagnosis; diagnose again before approval")
+    return data
+
+
+def stage_block(root, task, reason):
+    task["pending_block_reason"] = reason
+    write(path(root, "tasks", "active", task["task_id"]), task)
+
+
+REPORT_SECTIONS = ("Overview", "Commands and Results", "Review and QA Rounds", "Remaining Checks", "Evidence Paths")
+OPEN_REPORT_SECTIONS = ("Open Errors", "Attempts", "Why Not Converged", "Human Options", "Human Decision")
+
+
+def require_report(root, task, status):
+    ref = task.get("latest_report")
+    if not ref or task.get("report_status") != status:
+        fail(f"{status} report required before transition")
+    report = (root / ref).resolve()
+    reports_dir = (root / ".verified-development-loop" / "reports").resolve()
+    if report.parent != reports_dir or not report.name.startswith(f"{task['task_id']}-{status}-") or not report.is_file():
+        fail("linked report is missing, empty, or outside reports directory")
+    content = report.read_text(encoding="utf-8")
+    if not content.strip() or f"**Task:** {task['task_id']}" not in content or f"**Status:** {status}" not in content:
+        fail("linked report is empty or disagrees with task and status")
+    return ref
+
+
+def write_report(root, task_id, status, source):
+    if status not in ("completed", "blocked", "completed-accepted"):
+        fail("report status must be completed, blocked, or completed-accepted")
+    task_path = path(root, "tasks", "active", task_id)
+    task = read(task_path)
+    if task["status"] != "active":
+        fail("report requires an active task")
+    source_path = (source if source.is_absolute() else root / source).resolve()
+    if source_path.parent != (root / ".verified-development-loop" / "evidence" / task_id).resolve() or source_path.suffix != ".md" or not source_path.is_file():
+        fail("report input must be a Markdown file in this task's evidence directory")
+    body = source_path.read_text(encoding="utf-8")
+    if not body.strip() or f"**Task:** {task_id}" not in body or f"**Status:** {status}" not in body:
+        fail("report must identify its task and status")
+    sections = REPORT_SECTIONS + (OPEN_REPORT_SECTIONS if status != "completed" else ())
+    if status == "completed-accepted":
+        sections += ("Accepted Errors",)
+    for heading in sections:
+        match = re.search(rf"^## {re.escape(heading)}\s*$\n(.*?)(?=^## |\Z)", body, re.MULTILINE | re.DOTALL)
+        if not match or (heading != "Human Decision" and not match.group(1).strip()):
+            fail(f"report requires {heading} section")
+    for label in ("Plan", "Spec", "Code", "Fix rounds", "Review rounds", "QA rounds"):
+        if not re.search(rf"^\s*-\s*\*\*{re.escape(label)}:\*\*\s*\S+", body, re.MULTILINE):
+            fail(f"report requires {label} field")
+    if status == "blocked" and not task.get("pending_block_reason"):
+        fail("blocked report requires a pending blocker")
+    reports_dir = root / ".verified-development-loop" / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{task_id}-{status}-{datetime.now(timezone.utc):%Y%m%d-%H%M}"
+    index = 1
+    while True:
+        suffix = "" if index == 1 else f"-{index}"
+        report_path = reports_dir / f"{stem}{suffix}.md"
+        try:
+            with report_path.open("x", encoding="utf-8") as stream:
+                stream.write(body)
+            break
+        except FileExistsError:
+            index += 1
+    ref = report_path.relative_to(root).as_posix()
+    task.update(latest_report=ref, report_status=status)
+    write(task_path, task)
+    safe_emit(root, "report.recorded", "COMPLETED", plan_id=task["plan_id"], task_id=task_id,
+              evidence_reference=ref, data={"report_status": status})
+    return ref
+
+
 def block(root, task, reason):
+    require_report(root, task, "blocked")
     task["status"] = "blocked"
     task["blocked_reason"] = reason
+    task.pop("pending_block_reason", None)
     plan_path = path(root, "plans", "active", task["plan_id"])
     plan = read(plan_path)
     plan["execution_state"] = "waiting_human"
@@ -112,6 +238,12 @@ def block(root, task, reason):
 def propose(root, source):
     draft = read(source)
     plan_id = identifier(draft["plan_id"])
+    if draft.get("mode", "feature") not in ("feature", "bug"):
+        fail("mode must be feature or bug")
+    if draft.get("mode") == "bug" and (not draft.get("error_id") or not draft.get("fix_approach")):
+        fail("bug mode requires error ID and approved fix approach")
+    if draft.get("mode") == "bug":
+        identifier(draft["error_id"])
     if not draft.get("spec") or not draft.get("acceptance_criteria") or not draft.get("tasks"):
         fail("spec, plan acceptance criteria, and tasks required")
     ids = set()
@@ -161,6 +293,7 @@ def propose(root, source):
 def approve(root, plan_id, human):
     source = path(root, "plans", "drafts", plan_id)
     plan = read(source)
+    require_diagnosis(root, plan, unchanged=True)
     if not human.strip():
         fail("human approval record required")
     draft_spec_path = path(root, "specs", "drafts", plan_id)
@@ -180,6 +313,8 @@ def approve(root, plan_id, human):
     plan.update(status="active", execution_state="running", human_approval=approval, spec_file=spec_path.relative_to(root).as_posix())
     for item in plan["tasks"]:
         task = {**item, "plan_id": plan_id, "status": "active", "fix_round": 0, "verification_evidence": None, "review_evidence": None, "qa_evidence": None, "qa_failures": [], "acceptance_evidence": None}
+        if plan.get("mode") == "bug":
+            task.update(mode="bug", diagnosis_evidence=plan["diagnosis_evidence"])
         write(path(root, "tasks", "active", item["task_id"]), task)
     write(path(root, "plans", "active", plan_id), plan)
     source.unlink()
@@ -193,6 +328,7 @@ def approve(root, plan_id, human):
 
 def verify(root, task_id):
     p, task = active_task(root, task_id)
+    require_diagnosis(root, task)
     for dep in task.get("depends_on", []):
         if not path(root, "tasks", "completed", dep).exists():
             fail("task dependency is not completed")
@@ -214,7 +350,7 @@ def verify(root, task_id):
     else:
         safe_emit(root, "verification.failed", "FAILED", plan_id=task.get("plan_id"), task_id=task_id, evidence_reference=ref, data={"commands": results, "revision": revision, "status": status})
     if status != "PASS" and task["fix_round"] >= 3:
-        block(root, task, "verification failed after third fix")
+        stage_block(root, task, "verification failed after third fix")
     else:
         write(p, task)
     print(f"{status}: {ref}")
@@ -250,7 +386,7 @@ def review(root, task_id, result, findings, reviewer):
     else:
         safe_emit(root, "review.failed", "FAILED", plan_id=task.get("plan_id"), task_id=task_id, agent_id=reviewer, evidence_reference=ref, data={"reviewer": reviewer, "findings": findings})
     if result == "FAIL" and task["fix_round"] >= 3:
-        block(root, task, "review failed after third fix")
+        stage_block(root, task, "review failed after third fix")
     else:
         write(p, task)
     print(f"{result}: {ref}")
@@ -284,7 +420,7 @@ def qa(root, task_id, result, report, tester):
     print(f"{result}: {ref}")
 
 
-def record_error(root, task_id, error_id, description, detection, root_cause, classification=None):
+def record_error(root, task_id, error_id, description, detection, root_cause, classification=None, severity=None):
     _, task = active_task(root, task_id)
     p = root / ".verified-development-loop" / "errors" / (identifier(error_id) + ".md")
     if p.exists() or not description.strip() or not detection.strip():
@@ -294,11 +430,13 @@ def record_error(root, task_id, error_id, description, detection, root_cause, cl
         fail("current failed verification, review, or QA evidence required")
     if task.get("qa_evidence") and classification not in ("code", "spec", "environment", "uncertain"):
         fail("QA error classification required")
+    if severity is not None and severity not in ("blocker", "serious", "minor"):
+        fail("severity must be blocker, serious, or minor")
     safe_emit(root, "error.recording", "RUNNING", plan_id=task.get("plan_id"), task_id=task_id, data={"error_id": error_id})
-    write(p, {"error_id": error_id, "task_id": task_id, "plan_id": task["plan_id"], "description": description, "root_cause": root_cause or None, "classification": classification, "detection_evidence": detection, "fix_attempts": 0, "recurrences": 0, "attempts": [], "verification_logs": [task["verification_evidence"]] if task.get("verification_evidence") else [], "review_findings": [task["review_evidence"]] if task.get("review_evidence") else [], "qa_findings": [task["qa_evidence"]] if task.get("qa_evidence") else [], "status": "OPEN", "prevention_lesson": None})
+    write(p, {"error_id": error_id, "task_id": task_id, "plan_id": task["plan_id"], "description": description, "root_cause": root_cause or None, "classification": classification, "severity": severity, "detection_evidence": detection, "fix_attempts": 0, "recurrences": 0, "attempts": [], "verification_logs": [task["verification_evidence"]] if task.get("verification_evidence") else [], "review_findings": [task["review_evidence"]] if task.get("review_evidence") else [], "qa_findings": [task["qa_evidence"]] if task.get("qa_evidence") else [], "status": "OPEN", "prevention_lesson": None})
     safe_emit(root, "error.recorded", "COMPLETED", plan_id=task.get("plan_id"), task_id=task_id, data={"error_id": error_id, "description": description, "detection": detection, "root_cause": root_cause})
     if classification in ("spec", "uncertain") or (classification == "code" and task["fix_round"] >= 3):
-        block(root, task, "QA requires human decision" if classification != "code" else "QA code failure after third fix")
+        stage_block(root, task, "QA requires human decision" if classification != "code" else "QA code failure after third fix")
 
 
 def start_fix(root, task_id, error_id, approach):
@@ -390,8 +528,6 @@ def evaluate(root, task_id, error_id, result, evidence_note, lesson):
         if not environment_retry and task["fix_round"] >= 3:
             error["status"] = "BLOCKED"
         safe_emit(root, "error.recurred", "BLOCKED" if error["status"] == "BLOCKED" else "FAILED", plan_id=task.get("plan_id"), task_id=task_id, attempt=task.get("fix_round"), data={"error_id": error_id, "recurrences": error["recurrences"], "evidence": evidence_note})
-        if error["status"] == "BLOCKED":
-            block(root, task, "same confirmed error persisted after third fix")
     else:
         fail("result must be resolved or persists")
     if not environment_retry:
@@ -407,10 +543,13 @@ def evaluate(root, task_id, error_id, result, evidence_note, lesson):
     if task.get("qa_evidence"):
         error.setdefault("qa_findings", []).append(task["qa_evidence"])
     write(error_path, error)
+    if result == "persists" and error["status"] == "BLOCKED":
+        stage_block(root, task, "same confirmed error persisted after third fix")
 
 
 def complete_task(root, task_id, acceptance):
     p, task = active_task(root, task_id)
+    require_diagnosis(root, task)
     current_verification(root, task)
     ref = task.get("review_evidence")
     if not ref or read(root / ref)["status"] != "PASS" or read(root / ref)["revision"] != snapshot(root):
@@ -432,6 +571,7 @@ def complete_task(root, task_id, acceptance):
     }
     if not set(task.get("qa_failures", [])).issubset(recorded_qa_failures):
         fail("every failed QA run must be recorded in error memory")
+    require_report(root, task, "completed")
     task["acceptance_evidence"] = evidence(root, "acceptance", task_id, {"revision": snapshot(root), "criteria": acceptance, "verification": task["verification_evidence"], "review": ref, "qa": qa_ref})
     task["status"] = "completed"
     target = path(root, "tasks", "completed", task_id)
@@ -440,9 +580,65 @@ def complete_task(root, task_id, acceptance):
     safe_emit(root, "task.completed", "COMPLETED", plan_id=task.get("plan_id"), task_id=task_id, evidence_reference=task["acceptance_evidence"], data={"criteria": acceptance})
 
 
-def complete_plan(root, plan_id, acceptance):
+def complete_task_accepted(root, task_id, acceptance, error_ids, accepted_by, accepted_on):
+    p = path(root, "tasks", "active", task_id)
+    task = read(p)
+    if task["status"] != "active":
+        fail("active task required")
+    plan_path = path(root, "plans", "active", task["plan_id"])
+    if not plan_path.exists() or read(plan_path)["status"] != "active":
+        fail("approved active plan required")
+    if not accepted_by.strip() or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", accepted_on):
+        fail("human name and acceptance date required")
+    try:
+        datetime.strptime(accepted_on, "%Y-%m-%d")
+    except ValueError:
+        fail("acceptance date must be a real YYYY-MM-DD date")
+    if not error_ids or len(error_ids) != len(set(error_ids)):
+        fail("distinct accepted error IDs required")
+    require_diagnosis(root, task)
+    current_verification(root, task)
+    review_ref = task.get("review_evidence")
+    qa_ref = task.get("qa_evidence")
+    if not review_ref or read(root / review_ref)["status"] != "PASS" or read(root / review_ref)["revision"] != snapshot(root):
+        fail("current passing code review required")
+    if not qa_ref or read(root / qa_ref)["revision"] != snapshot(root) or read(root / qa_ref)["review_evidence"] != review_ref:
+        fail("current QA evidence required")
+    if set(acceptance) != set(task["acceptance_criteria"]) or len(acceptance) != len(task["acceptance_criteria"]):
+        fail("all task acceptance criteria must be explicitly attested")
+    errors = [read(error_path) for error_path in (root / ".verified-development-loop" / "errors").glob("*.md")]
+    unresolved = {error["error_id"]: error for error in errors if error["task_id"] == task_id and error["status"] != "RESOLVED"}
+    if set(error_ids) != set(unresolved):
+        fail("accepted error IDs must match every unresolved task error")
+    for error in unresolved.values():
+        if error.get("severity") not in ("serious", "minor"):
+            fail("Blocker or unclassified error cannot be accepted")
+        if qa_ref not in error.get("qa_findings", []):
+            fail("accepted error requires current QA finding")
+    recorded_qa_failures = {ref for error in errors if error["task_id"] == task_id for ref in error.get("qa_findings", [])}
+    if not set(task.get("qa_failures", [])).issubset(recorded_qa_failures):
+        fail("every failed QA run must be recorded in error memory")
+    require_report(root, task, "completed-accepted")
+    report_text = (root / task["latest_report"]).read_text(encoding="utf-8")
+    if accepted_by not in report_text or accepted_on not in report_text or any(error_id not in report_text for error_id in error_ids):
+        fail("accepted report must name each error, human, and date")
+    task["acceptance_evidence"] = evidence(root, "acceptance", task_id, {"revision": snapshot(root), "criteria": acceptance,
+        "verification": task["verification_evidence"], "review": review_ref, "qa": qa_ref,
+        "accepted_errors": error_ids, "accepted_by": accepted_by, "accepted_on": accepted_on})
+    task.update(status="completed", completion_kind="accepted_errors", accepted_errors=error_ids,
+                accepted_by=accepted_by, accepted_on=accepted_on)
+    task.pop("pending_block_reason", None)
+    target = path(root, "tasks", "completed", task_id)
+    write(target, task)
+    p.unlink()
+    safe_emit(root, "task.completed", "COMPLETED", plan_id=task["plan_id"], task_id=task_id,
+              evidence_reference=task["acceptance_evidence"], data={"criteria": acceptance, "accepted_errors": error_ids})
+
+
+def complete_plan(root, plan_id, acceptance, accepted=False):
     p = path(root, "plans", "active", plan_id)
     plan = read(p)
+    diagnosis = require_diagnosis(root, plan)
     spec_path = path(root, "specs", "active", plan_id)
     if plan["status"] != "active" or plan["execution_state"] == "waiting_human":
         fail("plan is not running")
@@ -454,10 +650,38 @@ def complete_plan(root, plan_id, acceptance):
         tid = item["task_id"]
         if not path(root, "tasks", "completed", tid).exists() or path(root, "tasks", "active", tid).exists():
             fail("all plan tasks must be completed")
+        completed_task = read(path(root, "tasks", "completed", tid))
+        report_status = "completed-accepted" if completed_task.get("completion_kind") == "accepted_errors" else "completed"
+        require_report(root, completed_task, report_status)
+    task_records = [read(path(root, "tasks", "completed", item["task_id"])) for item in plan["tasks"]]
+    accepted_ids = {error_id for task in task_records for error_id in task.get("accepted_errors", [])}
+    if accepted != bool(accepted_ids):
+        fail("use the matching normal or accepted Plan completion")
     for error_path in (root / ".verified-development-loop" / "errors").glob("*.md") if (root / ".verified-development-loop" / "errors").exists() else []:
         error = read(error_path)
-        if error["plan_id"] == plan_id and error["status"] != "RESOLVED":
+        if error["plan_id"] == plan_id and error["status"] != "RESOLVED" and error["error_id"] not in accepted_ids:
             fail("unresolved plan error")
+    if diagnosis:
+        error_path = root / ".verified-development-loop" / "errors" / (identifier(plan["error_id"]) + ".md")
+        if error_path.exists():
+            previous = read(error_path)
+            if previous["plan_id"] != plan_id or previous["status"] != "RESOLVED":
+                fail("diagnosed error ID already exists")
+            previous["root_cause"] = diagnosis["root_cause"]
+            previous["detection_evidence"] = plan["diagnosis_evidence"]
+            write(error_path, previous)
+        else:
+            tasks = [read(path(root, "tasks", "completed", item["task_id"])) for item in plan["tasks"]]
+            write(error_path, {"error_id": plan["error_id"], "task_id": tasks[0]["task_id"], "plan_id": plan_id,
+                "description": "Original bug reproduced in investigator report", "root_cause": diagnosis["root_cause"],
+                "classification": "code", "detection_evidence": plan["diagnosis_evidence"],
+                "fix_attempts": 1, "recurrences": 0,
+                "attempts": [{"round": 1, "approach": plan["fix_approach"], "time": stamp(), "result": "resolved",
+                              "evidence": ", ".join(task["acceptance_evidence"] for task in tasks)}],
+                "verification_logs": [task["verification_evidence"] for task in tasks],
+                "review_findings": [task["review_evidence"] for task in tasks],
+                "qa_findings": [task["qa_evidence"] for task in tasks],
+                "status": "RESOLVED", "prevention_lesson": None})
     plan.update(status="completed", execution_state="completed", acceptance_evidence={"criteria": acceptance, "time": stamp()})
     spec = read(spec_path)
     spec["status"] = "completed"
@@ -470,9 +694,15 @@ def complete_plan(root, plan_id, acceptance):
 
 
 def block_task(root, task_id, reason):
-    _, task = active_task(root, task_id)
+    task = read(path(root, "tasks", "active", task_id))
+    if task["status"] != "active":
+        fail("active task required")
     if not reason.strip():
         fail("blocking reason required")
+    if task.get("pending_block_reason") and task["pending_block_reason"] != reason:
+        fail("blocking reason disagrees with pending blocker")
+    if not task.get("pending_block_reason"):
+        stage_block(root, task, reason)
     block(root, task, reason)
 
 
@@ -482,6 +712,7 @@ def main():
     sub = parser.add_subparsers(dest="action", required=True)
     definitions = {
         "propose": ["--input"], "approve": ["--plan-id", "--human-approval"],
+        "record-diagnosis": ["--plan-id", "--report", "--result", "--classification", "--confidence"],
         "verify": ["--task-id"], "review": ["--task-id", "--result", "--reviewer"],
         "qa": ["--task-id", "--result", "--report", "--tester"],
         "record-error": ["--task-id", "--error-id", "--description", "--detection"],
@@ -489,7 +720,10 @@ def main():
         "join-fix": ["--task-id", "--error-id", "--approach"],
         "evaluate": ["--task-id", "--error-id", "--result", "--evidence"],
         "complete-task": ["--task-id"], "complete-plan": ["--plan-id"],
+        "complete-task-accepted": ["--task-id", "--accepted-by", "--accepted-on"],
+        "complete-plan-accepted": ["--plan-id"],
         "block-task": ["--task-id", "--reason"],
+        "write-report": ["--task-id", "--status", "--input"],
         "emit": ["--event"],
     }
     for name, required in definitions.items():
@@ -501,10 +735,13 @@ def main():
         if name == "record-error":
             cmd.add_argument("--root-cause")
             cmd.add_argument("--classification", choices=("code", "spec", "environment", "uncertain"))
+            cmd.add_argument("--severity", choices=("blocker", "serious", "minor"))
         if name == "evaluate":
             cmd.add_argument("--lesson")
-        if name in ("complete-task", "complete-plan"):
+        if name in ("complete-task", "complete-plan", "complete-task-accepted", "complete-plan-accepted"):
             cmd.add_argument("--accept", action="append", required=True)
+        if name == "complete-task-accepted":
+            cmd.add_argument("--accepted-error", action="append", required=True)
         if name == "emit":
             cmd.add_argument("--status", default="COMPLETED")
             cmd.add_argument("--plan-id")
@@ -518,18 +755,53 @@ def main():
     root = args.root.resolve()
     try:
         if args.action == "propose": propose(root, Path(args.input))
+        elif args.action == "record-diagnosis":
+            print(record_diagnosis(root, args.plan_id, Path(args.report), args.result, args.classification, args.confidence))
         elif args.action == "approve": approve(root, args.plan_id, args.human_approval)
         elif args.action == "verify": return 0 if verify(root, args.task_id) else 1
         elif args.action == "review": review(root, args.task_id, args.result, args.finding, args.reviewer)
         elif args.action == "qa": qa(root, args.task_id, args.result, Path(args.report), args.tester)
-        elif args.action == "record-error": record_error(root, args.task_id, args.error_id, args.description, args.detection, args.root_cause, args.classification)
+        elif args.action == "record-error": record_error(root, args.task_id, args.error_id, args.description, args.detection, args.root_cause, args.classification, args.severity)
         elif args.action == "start-fix": start_fix(root, args.task_id, args.error_id, args.approach)
         elif args.action == "join-fix": join_fix(root, args.task_id, args.error_id, args.approach)
         elif args.action == "evaluate": evaluate(root, args.task_id, args.error_id, args.result, args.evidence, args.lesson)
         elif args.action == "complete-task": complete_task(root, args.task_id, args.accept)
         elif args.action == "complete-plan": complete_plan(root, args.plan_id, args.accept)
+        elif args.action == "complete-task-accepted": complete_task_accepted(root, args.task_id, args.accept, args.accepted_error, args.accepted_by, args.accepted_on)
+        elif args.action == "complete-plan-accepted": complete_plan(root, args.plan_id, args.accept, accepted=True)
         elif args.action == "block-task": block_task(root, args.task_id, args.reason)
+        elif args.action == "write-report": print(write_report(root, args.task_id, args.status, Path(args.input)))
         elif args.action == "emit":
+            if args.event == "main_agent.reported":
+                if not args.task_id:
+                    fail("main_agent.reported requires task ID and saved report")
+                task_file = next((p for state in ("active", "completed") if (p := path(root, "tasks", state, args.task_id)).exists()), None)
+                if task_file is None:
+                    fail("reported task does not exist")
+                reported_task = read(task_file)
+                if reported_task["status"] not in ("blocked", "completed"):
+                    fail("task must finish before main_agent.reported")
+                payload = json.loads(args.data) if args.data else {}
+                expected = "blocked" if reported_task["status"] == "blocked" else "completed-accepted" if reported_task.get("completion_kind") == "accepted_errors" else "completed"
+                require_report(root, reported_task, expected)
+                if payload.get("report") != reported_task["latest_report"]:
+                    fail("main_agent.reported must cite the saved latest report")
+            if args.event == "tdd.started":
+                plan_id = getattr(args, "plan_id", None)
+                task_id = getattr(args, "task_id", None)
+                plan_file = None
+                if plan_id:
+                    plan_file = next((p for state in ("active", "drafts") if (p := path(root, "plans", state, plan_id)).exists()), None)
+                elif task_id and path(root, "tasks", "active", task_id).exists():
+                    plan_id = read(path(root, "tasks", "active", task_id))["plan_id"]
+                    plan_file = path(root, "plans", "active", plan_id)
+                if plan_file and read(plan_file).get("mode") == "bug":
+                    if plan_file.parent.name != "active" or not task_id:
+                        fail("approved bug Plan and diagnosis required before TDD")
+                    _, task = active_task(root, task_id)
+                    if task["plan_id"] != plan_id:
+                        fail("TDD task does not belong to bug Plan")
+                    require_diagnosis(root, task)
             payload_data = json.loads(args.data) if getattr(args, "data", None) else {}
             ev = emit_event(
                 root,

@@ -27,3 +27,7 @@ Write the approved tests in their named files. Run one new test and capture a va
 - **Remaining issues:** failed commands, scope questions, changed test expectations awaiting approval, or `none`.
 
 Do not claim Red or Green without the actual command result. The main agent runs `workflow.py verify` after this handoff.
+
+## Bug mode
+
+Make the first new test reproduce the exact reported bug. Run it against unchanged application code and record its actual Red command, exit code, and output before repairing anything. Fix the supported root cause with the smallest change inside the approved Bug Spec and Plan; do not weaken or remove the regression test. Run the test and planned checks to Green, and report any adjacent behavior or full-suite failure.

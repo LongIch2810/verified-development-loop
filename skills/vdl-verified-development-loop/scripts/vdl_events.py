@@ -269,6 +269,11 @@ class WorkflowStateReducer:
                 "timestamp": None,
                 "evidence_reference": None,
             }
+        bug_mode = any(ev.event_type.startswith("diagnosis.") for ev in events)
+        if bug_mode:
+            steps["diagnosis"] = {"id": "diagnosis", "name": "Diagnosis", "order": 3,
+                "status": "PENDING", "summary": "Awaiting diagnosis", "details": {},
+                "timestamp": None, "evidence_reference": None}
 
         # Track state containers
         active_plan_id: Optional[str] = None
@@ -329,7 +334,20 @@ class WorkflowStateReducer:
                 steps["read_errors"]["summary"] = f"Checked error memory ({count} relevant prior errors)"
                 steps["read_errors"]["details"] = ev.data
                 steps["read_errors"]["timestamp"] = ev.timestamp
-                current_step_id = "interview"
+                current_step_id = "diagnosis" if bug_mode else "interview"
+
+            elif etype == "diagnosis.started" and bug_mode:
+                steps["diagnosis"]["status"] = "RUNNING"
+                steps["diagnosis"]["summary"] = "Investigator reproducing and diagnosing the bug"
+                steps["diagnosis"]["timestamp"] = ev.timestamp
+                current_step_id = "diagnosis"
+            elif etype == "diagnosis.completed" and bug_mode:
+                steps["diagnosis"]["status"] = ev.status
+                steps["diagnosis"]["summary"] = f"Diagnosis: {ev.data.get('result', 'unknown')}"
+                steps["diagnosis"]["details"] = ev.data
+                steps["diagnosis"]["timestamp"] = ev.timestamp
+                steps["diagnosis"]["evidence_reference"] = ev.evidence_reference
+                current_step_id = "spec" if ev.status == "COMPLETED" and ev.data.get("classification") == "code" and ev.data.get("confidence") in ("high", "medium") else "diagnosis"
 
             # Interview
             elif etype == "interview.started":
@@ -591,7 +609,7 @@ class WorkflowStateReducer:
             current_step_id = ""
 
         # 3. Mark current step and fallback unvisited steps
-        step_list = [steps[s["id"]] for s in WORKFLOW_STEPS]
+        step_list = [steps["diagnosis"] if bug_mode and s["id"] == "interview" else steps[s["id"]] for s in WORKFLOW_STEPS]
 
         # 4. Compute Dynamic Graph Model for visual loop tracking
         graph = WorkflowStateReducer.compute_graph_layout(
@@ -652,8 +670,12 @@ class WorkflowStateReducer:
             active_edge_ids = ["prompt->read_errors"]
         elif current_step_id == "read_errors":
             active_node_id = "read_errors"
-            next_node_id = "interview"
-            active_edge_ids = ["read_errors->interview"]
+            next_node_id = "diagnosis" if "diagnosis" in steps else "interview"
+            active_edge_ids = [f"read_errors->{next_node_id}"]
+        elif current_step_id == "diagnosis":
+            active_node_id = "diagnosis"
+            next_node_id = "proposal"
+            active_edge_ids = ["diagnosis->proposal"]
         elif current_step_id == "interview":
             active_node_id = "interview"
             next_node_id = "proposal"
@@ -742,6 +764,7 @@ class WorkflowStateReducer:
             "prompt": steps["raw_prompt"]["status"],
             "read_errors": steps["read_errors"]["status"],
             "interview": steps["interview"]["status"],
+            **({"diagnosis": steps["diagnosis"]["status"]} if "diagnosis" in steps else {}),
             "proposal": "RUNNING" if any(steps[name]["status"] == "RUNNING" for name in ("spec", "plan")) else "PENDING",
             "approval": steps["human_approval"]["status"],
             "active": steps["active"]["status"],
@@ -758,7 +781,7 @@ class WorkflowStateReducer:
         nodes = [
             {"id": "prompt", "label": "Raw Prompt", "label_vn": "Yêu cầu Gốc", "icon": "💬", "phase": "inception", "step_id": "raw_prompt", "status": steps["raw_prompt"]["status"], "is_active": active_node_id == "prompt", "is_next": next_node_id == "prompt"},
             {"id": "read_errors", "label": "Read Errors", "label_vn": "Đọc Lỗi Cũ", "icon": "📖", "phase": "inception", "step_id": "read_errors", "status": steps["read_errors"]["status"], "is_active": active_node_id == "read_errors", "is_next": next_node_id == "read_errors"},
-            {"id": "interview", "label": "Interview", "label_vn": "Phỏng Vấn", "icon": "❓", "phase": "inception", "step_id": "interview", "status": steps["interview"]["status"], "is_active": active_node_id == "interview", "is_next": next_node_id == "interview"},
+            {"id": "diagnosis", "label": "Diagnosis", "label_vn": "Chẩn Đoán", "icon": "🔬", "phase": "inception", "step_id": "diagnosis", "status": steps["diagnosis"]["status"], "is_active": active_node_id == "diagnosis", "is_next": next_node_id == "diagnosis"} if "diagnosis" in steps else {"id": "interview", "label": "Interview", "label_vn": "Phỏng Vấn", "icon": "❓", "phase": "inception", "step_id": "interview", "status": steps["interview"]["status"], "is_active": active_node_id == "interview", "is_next": next_node_id == "interview"},
             {"id": "proposal", "label": "Spec & Plan", "label_vn": "Đặc Tả & Kế Hoạch", "icon": "📋", "phase": "inception", "step_id": "spec", "status": steps["spec"]["status"], "is_active": active_node_id == "proposal", "is_next": next_node_id == "proposal"},
             {"id": "approval", "label": "Approval Gate", "label_vn": "Cổng Duyệt Con Người", "icon": "🛡️", "phase": "gate", "step_id": "human_approval", "status": steps["human_approval"]["status"], "is_active": active_node_id == "approval", "is_next": next_node_id == "approval"},
             {"id": "active", "label": "Active Task", "label_vn": "Nhiệm Vụ Hiện Tại", "icon": "🎯", "phase": "execution", "step_id": "active", "status": steps["active"]["status"], "is_active": active_node_id == "active", "is_next": next_node_id == "active"},
@@ -776,11 +799,11 @@ class WorkflowStateReducer:
         # Edges and feedback loops
         edges = [
             {"from": "prompt", "to": "read_errors", "type": "sequence"},
-            {"from": "read_errors", "to": "interview", "type": "sequence"},
-            {"from": "interview", "to": "proposal", "type": "sequence"},
+            {"from": "read_errors", "to": "diagnosis" if "diagnosis" in steps else "interview", "type": "sequence"},
+            {"from": "diagnosis" if "diagnosis" in steps else "interview", "to": "proposal", "type": "sequence"},
             {"from": "proposal", "to": "approval", "type": "sequence"},
             {"from": "approval", "to": "active", "type": "approved"},
-            {"from": "approval", "to": "interview", "type": "loop_revision"},
+            {"from": "approval", "to": "diagnosis" if "diagnosis" in steps else "interview", "type": "loop_revision"},
             {"from": "active", "to": "tdd", "type": "sequence"},
             {"from": "tdd", "to": "verify", "type": "sequence"},
             {"from": "verify", "to": "review", "type": "pass"},

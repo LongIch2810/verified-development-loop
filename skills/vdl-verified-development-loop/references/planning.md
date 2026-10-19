@@ -1,5 +1,11 @@
 # Planning
 
+## Bug mode
+
+After the [investigator](../agents/investigator.md) reproduces and supports a code root cause, ask the planner for one [Bug Spec](../assets/templates/bug-spec.md) and repair Plan with a concrete fix approach, regression test source, and QA scenarios. The existing proposal fields remain, with `mode: "bug"`, `diagnosis_evidence`, `error_id`, and `fix_approach`; feature proposals omit these and retain their behavior. Keep the temporary proposal input under `.verified-development-loop/evidence/PLAN/` so it does not alter the pre-repair code fingerprint. Present Bug Spec and fix approach together for **one** explicit human approval. Do not edit application code before approval. A blocking open question or missing diagnosis evidence prevents approval.
+
+The steps below describe feature mode.
+
 1. Receive the raw prompt. Search `.verified-development-loop/errors/*.md` by relevant task, component, or symptom; read only matches before interviewing the human.
 2. Main agent interviews the human about material gaps in scope, expected behavior, constraints, and verification. Record confirmed answers.
 3. Ask `planner` to return one Spec using [the Spec template](../assets/templates/template-spec.md) and one Plan using [the Plan template](../assets/templates/template-plan.md). Spec states scope, exclusions, and observable acceptance criteria. Plan gives ordered task IDs, dependencies, complete test source for every Task, real verification commands, and independent QA scenarios for this repository. Every Task criterion has at least one QA scenario, written before coding. The planning agent does not approve or implement.

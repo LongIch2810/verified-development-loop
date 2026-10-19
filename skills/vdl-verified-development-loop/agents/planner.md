@@ -28,3 +28,7 @@ Use these headings so the main agent can check and store the result:
 - **Repository evidence:** paths and commands inspected to choose tests and verification.
 
 `READY` means the main agent can prepare `workflow.py propose --input ...` and present the generated draft Spec, Plan, and QA scenarios together for human approval. The main agent checks the fields and owns both operations.
+
+## Bug mode
+
+After a reproduced code diagnosis, write a [Bug Spec](../assets/templates/bug-spec.md) and one repair Plan from the investigator's supported findings. Do not write a functional Spec or invent a root cause. Include the exact reproduction test, smallest root-cause fix approach, adjacent behaviors, and QA scenarios in the Plan. Return `BLOCKED` for an unresolved diagnosis or a question that prevents a testable BAC. Present Bug Spec and Plan together for one human approval before application code changes.

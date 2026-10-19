@@ -29,6 +29,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "skills/vdl-verified-develop
 sys.path.insert(0, str(SCRIPTS_DIR))
 import install_vdl
 import vdl_events as ve
+import workflow as w
 
 
 def get_free_port():
@@ -203,11 +204,23 @@ class E2EWorkflowTrackingIntegrationTests(unittest.TestCase):
         subprocess.run([sys.executable, str(workflow_script), "qa", "--task-id", "math-task-1", "--result", "PASS", "--tester", "qa_tester", "--report", str(qa_report)], cwd=self.repo1, check=True)
 
         # 13. Complete Task and Complete Plan
+        human_report = qa_report.parent / "human-report.md"
+        human_report.write_text(
+            "# Human report\n\n- **Task:** math-task-1\n- **Status:** completed\n\n"
+            "## Overview\n\n- **Plan:** math-plan\n- **Spec:** math-plan\n- **Code:** test branch\n"
+            "- **Fix rounds:** 1/3\n- **Review rounds:** 1/3\n- **QA rounds:** 1/3\n\n"
+            "## Commands and Results\n\n- verification: exit 0\n\n"
+            "## Review and QA Rounds\n\n- review PASS, QA PASS\n\n"
+            "## Remaining Checks\n\n- none\n\n## Evidence Paths\n\n- QA report\n",
+            encoding="utf-8",
+        )
+        subprocess.run([sys.executable, str(workflow_script), "write-report", "--task-id", "math-task-1", "--status", "completed", "--input", str(human_report)], cwd=self.repo1, check=True)
         subprocess.run([sys.executable, str(workflow_script), "complete-task", "--task-id", "math-task-1", "--accept", "multiply works correctly"], cwd=self.repo1, check=True)
         subprocess.run([sys.executable, str(workflow_script), "complete-plan", "--plan-id", "math-plan", "--accept", "add works", "--accept", "multiply works"], cwd=self.repo1, check=True)
 
         # 14. Emit main agent report
-        subprocess.run([sys.executable, str(workflow_script), "emit", "--event", "main_agent.reported", "--data", json.dumps({"summary": "Successfully added and verified multiply function"})], cwd=self.repo1, check=True)
+        saved_report = w.read(w.path(self.repo1, "tasks", "completed", "math-task-1"))["latest_report"]
+        subprocess.run([sys.executable, str(workflow_script), "emit", "--event", "main_agent.reported", "--task-id", "math-task-1", "--data", json.dumps({"summary": "Successfully added and verified multiply function", "report": saved_report})], cwd=self.repo1, check=True)
 
         # Verify final state for repo 1
         with urllib.request.urlopen(state_url) as r:

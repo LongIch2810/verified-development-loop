@@ -1,9 +1,10 @@
-# Real-Time Workflow Tracking
+﻿# Real-Time Workflow Tracking
 
-The VDL Control Center displays real-time events for the 13-step workflow. State-gate commands emit events automatically; the main agent must emit chat-only phase checkpoints. Host hooks add passive session and subagent lifecycle events where an adapter is installed. Without either source, the dashboard cannot observe agent activity.
+The VDL Control Center displays real-time events for the 13-step feature workflow. Bug mode replaces the interview node with diagnosis; the feature graph stays unchanged. State-gate commands emit events automatically; the main agent must emit chat-only phase checkpoints. Host hooks add passive session and subagent lifecycle events where an adapter is installed. Without either source, the dashboard cannot observe agent activity.
 1. `raw_prompt`
 2. `read_errors`
 3. `interview`
+   - Bug mode: `diagnosis` in this position.
 4. `spec`
 5. `plan`
 6. `human_approval`
@@ -19,6 +20,7 @@ The VDL Control Center displays real-time events for the 13-step workflow. State
 
 All state gates in `workflow.py` automatically emit telemetry events to the append-only store in `.vdl/events.jsonl` and broadcast to running Control Center instances:
 - `propose` -> emits `spec.completed`, `plan.completed`, `approval.waiting`
+- `record-diagnosis` -> emits `diagnosis.completed` with the investigator evidence reference; the main agent emits `diagnosis.started` before delegation
 - `approve` -> emits `approval.approved`, `workflow.started`, `task.started`
 - `verify` -> emits `verification.started`, and `verification.passed` (with exit codes) or `verification.failed`
 - `review` -> emits `review.started`, and `review.passed` (0 findings) or `review.failed` (with findings)
@@ -30,19 +32,27 @@ All state gates in `workflow.py` automatically emit telemetry events to the appe
 - `complete-task` -> emits `task.completed`
 - `complete-plan` -> emits `plan.completed`
 - `block-task` -> emits `task.blocked`
+- `write-report` -> emits `report.recorded` with the saved report path before `task.blocked` or `task.completed`
+- `complete-task-accepted` -> emits `task.completed` with the accepted error IDs
+- `complete-plan-accepted` -> emits `plan.completed`
 
 For workflow phases occurring in model chat, the main agent emits explicit checkpoints via CLI:
 ```bash
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event raw_prompt.received
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event read_errors.started
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event read_errors.completed --data '{"error_count": 0}'
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event interview.started
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event interview.completed --data '{"confirmed_scope": "..."}'
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event tdd.started --task-id ID
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event tdd.completed --task-id ID
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event qa.started --status RUNNING --task-id ID --agent-id qa_tester
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event main_agent.started --status RUNNING
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event main_agent.reported --data '{"summary": "..."}'
+python <skill-dir>/scripts/workflow.py emit --event raw_prompt.received
+python <skill-dir>/scripts/workflow.py emit --event read_errors.started
+python <skill-dir>/scripts/workflow.py emit --event read_errors.completed --data '{"error_count": 0}'
+python <skill-dir>/scripts/workflow.py emit --event interview.started
+python <skill-dir>/scripts/workflow.py emit --event interview.completed --data '{"confirmed_scope": "..."}'
+python <skill-dir>/scripts/workflow.py emit --event diagnosis.started --status RUNNING --plan-id ID --agent-id investigator
+# After the investigator returns, the main agent records the report and actual diagnosis result:
+python <skill-dir>/scripts/workflow.py record-diagnosis --plan-id ID --report .verified-development-loop/evidence/ID/investigator.md --result REPRODUCED --classification code --confidence high
+python <skill-dir>/scripts/workflow.py emit --event tdd.started --task-id ID
+python <skill-dir>/scripts/workflow.py emit --event tdd.completed --task-id ID
+python <skill-dir>/scripts/workflow.py emit --event qa.started --status RUNNING --task-id ID --agent-id qa_tester
+python <skill-dir>/scripts/workflow.py emit --event main_agent.started --status RUNNING
+python <skill-dir>/scripts/workflow.py write-report --task-id TASK --status blocked --input .verified-development-loop/evidence/TASK/human-report.md
+# After the matching state transition, summarize the saved file and emit its path:
+python <skill-dir>/scripts/workflow.py emit --event main_agent.reported --task-id TASK --data '{"summary": "...", "report": ".verified-development-loop/reports/TASK-blocked-YYYYMMDD-HHMM.md"}'
 ```
 
 Emit `.started` **before** the first tool call or native delegation for that phase. Emit `.completed` only after the work has actually finished. The graph highlights only a started phase; a completed phase makes the next node upcoming until it starts. Generic host prompt and subagent hook events remain in the event log but do not select a workflow node. `propose`, `approve`, `verify`, `review`, `qa`, error recording, and completion gates emit their own checkpoints when called. The QA node appears after review PASS; QA FAIL routes to error recording.
@@ -52,16 +62,16 @@ Emit `.started` **before** the first tool call or native delegation for that pha
 Use the host's native subagent tool with the matching `agents/*.md` role contract. The **main agent** runs the shared CLI from the repository root at the real handoff; children do not need hooks or shell access:
 
 ```bash
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event spec.started --status RUNNING --plan-id ID --agent-id planner
+python <skill-dir>/scripts/workflow.py emit --event spec.started --status RUNNING --plan-id ID --agent-id planner
 # Delegate the Spec and Plan to planner; workflow.py propose emits spec.completed and plan.completed after the draft is saved.
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event tdd.started --status RUNNING --plan-id ID --task-id TASK --agent-id tdd_coder
+python <skill-dir>/scripts/workflow.py emit --event tdd.started --status RUNNING --plan-id ID --task-id TASK --agent-id tdd_coder
 # Delegate the approved Task to tdd_coder.
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event tdd.completed --plan-id ID --task-id TASK --agent-id tdd_coder
+python <skill-dir>/scripts/workflow.py emit --event tdd.completed --plan-id ID --task-id TASK --agent-id tdd_coder
 # Run workflow.py verify. After PASS, start independent review:
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event review.started --status RUNNING --plan-id ID --task-id TASK --agent-id code_reviewer
+python <skill-dir>/scripts/workflow.py emit --event review.started --status RUNNING --plan-id ID --task-id TASK --agent-id code_reviewer
 # Delegate to code_reviewer; workflow.py review records the actual PASS or FAIL.
 # After review PASS, delegate every approved scenario to qa_tester and save its report in the Task evidence directory.
-python .agents/skills/vdl-verified-development-loop/scripts/workflow.py emit --event qa.started --status RUNNING --plan-id ID --task-id TASK --agent-id qa_tester
+python <skill-dir>/scripts/workflow.py emit --event qa.started --status RUNNING --plan-id ID --task-id TASK --agent-id qa_tester
 # Delegate to qa_tester; workflow.py qa records its actual PASS or FAIL and emits qa.completed.
 ```
 
@@ -71,7 +81,7 @@ When a child stops early or cannot finish, emit its actual status and report the
 
 The optional `install_vdl.py` setup starts the passive monitoring web UI automatically. To launch it manually later:
 ```bash
-python .agents/skills/vdl-verified-development-loop/scripts/control_center.py --port 4040
+python <skill-dir>/scripts/control_center.py --port 4040
 ```
 Open `http://127.0.0.1:4040` in a browser window alongside Codex CLI/IDE.
 The dashboard automatically syncs via SSE (`/api/stream`) with automatic reconnection and `Last-Event-ID` state recovery.
