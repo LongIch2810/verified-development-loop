@@ -24,14 +24,14 @@ VDL requires **Python 3.11+**, Git, and an agent that can read the skill, run Py
 Run this from the project where you want to use VDL:
 
 ```sh
-npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop --copy -y
+npx skills add LongIch2810/verified-development-loop --skill vdl-verified-development-loop
 ```
 
-`npx skills` detects installed agents and copies the skill into their skill directories. For example, Codex and Cursor use `.agents/skills/`, while Claude Code also receives a copy in `.claude/skills/`. No npm package is required; [the Skills CLI installs directly from a Git repository](https://github.com/vercel-labs/skills#source-formats).
+That command is enough to install the skill. `npx skills` detects installed agents and places the skill in their skill directories. For example, Codex and Cursor use `.agents/skills/`, while Claude Code also receives it in `.claude/skills/`. Add `--copy -y` if you want a copied installation without prompts. No npm package is required; [the Skills CLI installs directly from a Git repository](https://github.com/vercel-labs/skills#source-formats).
 
-### Initialize the workflow, hooks, and Control Center
+### Optional: set up hooks and Control Center
 
-**`npx skills add` only copies the skill. It does not run the setup script or activate hooks.** After installing, run this in the same project:
+The install command does not run the setup script or activate hooks. To initialize workflow directories, register lifecycle hooks, and start the dashboard, run this in the same project:
 
 ```sh
 python .agents/skills/vdl-verified-development-loop/scripts/install_vdl.py --target .
