@@ -1,6 +1,6 @@
 ---
 name: vdl-verified-development-loop
-description: Run one feature or significant bug fix through Spec, Plan, human approval, TDD, verification, independent review, and QA. Explicit invocation only: run when the user names this skill (verified-development-loop, "chạy loop"). Never select it automatically for ordinary coding, small bug fixes, questions, or workflow maintenance.
+description: Use when the user asks about the verified development loop's steps or approval gates, or explicitly asks to run it for one feature or significant bug. Explain the process for questions; do not start it for ordinary coding, small bug fixes, or workflow maintenance.
 ---
 
 # VDL-Verified-Development-Loop

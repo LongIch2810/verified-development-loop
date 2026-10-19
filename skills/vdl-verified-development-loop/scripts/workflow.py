@@ -50,7 +50,7 @@ def path(root, kind, state, name):
     return root / ".verified-development-loop" / kind / state / (identifier(name) + ".md")
 
 
-def active_task(root, task_id):
+def active_task(root, task_id, allow_pending=False):
     p = path(root, "tasks", "active", task_id)
     if not p.exists():
         fail("task is not active (approval required, or task already completed)")
@@ -60,7 +60,7 @@ def active_task(root, task_id):
         fail("approved active plan required")
     if task["status"] == "blocked":
         fail("task is blocked; wait for human decision")
-    if task.get("pending_block_reason"):
+    if task.get("pending_block_reason") and not allow_pending:
         fail("task awaits a blocked report and block-task")
     return p, task
 
@@ -143,7 +143,7 @@ def require_diagnosis(root, record, unchanged=False):
 
 
 def stage_block(root, task, reason):
-    task["pending_block_reason"] = reason
+    task["pending_block_reason"] = task.get("pending_block_reason") or reason
     write(path(root, "tasks", "active", task["task_id"]), task)
 
 
@@ -170,8 +170,8 @@ def write_report(root, task_id, status, source):
         fail("report status must be completed, blocked, or completed-accepted")
     task_path = path(root, "tasks", "active", task_id)
     task = read(task_path)
-    if task["status"] != "active":
-        fail("report requires an active task")
+    if task["status"] != "active" and not (status == "completed-accepted" and task["status"] == "blocked"):
+        fail("report requires an active task or blocked task accepting errors")
     source_path = (source if source.is_absolute() else root / source).resolve()
     if source_path.parent != (root / ".verified-development-loop" / "evidence" / task_id).resolve() or source_path.suffix != ".md" or not source_path.is_file():
         fail("report input must be a Markdown file in this task's evidence directory")
@@ -421,7 +421,7 @@ def qa(root, task_id, result, report, tester):
 
 
 def record_error(root, task_id, error_id, description, detection, root_cause, classification=None, severity=None):
-    _, task = active_task(root, task_id)
+    _, task = active_task(root, task_id, allow_pending=True)
     p = root / ".verified-development-loop" / "errors" / (identifier(error_id) + ".md")
     if p.exists() or not description.strip() or not detection.strip():
         fail("new error ID, description, and detection evidence required")
@@ -437,6 +437,20 @@ def record_error(root, task_id, error_id, description, detection, root_cause, cl
     safe_emit(root, "error.recorded", "COMPLETED", plan_id=task.get("plan_id"), task_id=task_id, data={"error_id": error_id, "description": description, "detection": detection, "root_cause": root_cause})
     if classification in ("spec", "uncertain") or (classification == "code" and task["fix_round"] >= 3):
         stage_block(root, task, "QA requires human decision" if classification != "code" else "QA code failure after third fix")
+
+
+def set_error_severity(root, task_id, error_id, severity):
+    if severity not in ("blocker", "serious", "minor"):
+        fail("severity must be blocker, serious, or minor")
+    task = read(path(root, "tasks", "active", task_id))
+    if task["status"] not in ("active", "blocked") or not path(root, "plans", "active", task["plan_id"]).exists():
+        fail("active or blocked task in an approved Plan required")
+    error_path = root / ".verified-development-loop" / "errors" / (identifier(error_id) + ".md")
+    error = read(error_path)
+    if error["task_id"] != task_id or error["status"] not in ("OPEN", "BLOCKED"):
+        fail("unresolved error for this task required")
+    error["severity"] = severity
+    write(error_path, error)
 
 
 def start_fix(root, task_id, error_id, approach):
@@ -583,8 +597,8 @@ def complete_task(root, task_id, acceptance):
 def complete_task_accepted(root, task_id, acceptance, error_ids, accepted_by, accepted_on):
     p = path(root, "tasks", "active", task_id)
     task = read(p)
-    if task["status"] != "active":
-        fail("active task required")
+    if task["status"] not in ("active", "blocked"):
+        fail("active or blocked task required")
     plan_path = path(root, "plans", "active", task["plan_id"])
     if not plan_path.exists() or read(plan_path)["status"] != "active":
         fail("approved active plan required")
@@ -631,6 +645,11 @@ def complete_task_accepted(root, task_id, acceptance, error_ids, accepted_by, ac
     target = path(root, "tasks", "completed", task_id)
     write(target, task)
     p.unlink()
+    plan = read(plan_path)
+    if not any((other_task := read(other))["status"] == "blocked" and other_task["plan_id"] == task["plan_id"]
+               for other in (root / ".verified-development-loop" / "tasks" / "active").glob("*.md")):
+        plan["execution_state"] = "running"
+        write(plan_path, plan)
     safe_emit(root, "task.completed", "COMPLETED", plan_id=task["plan_id"], task_id=task_id,
               evidence_reference=task["acceptance_evidence"], data={"criteria": acceptance, "accepted_errors": error_ids})
 
@@ -716,6 +735,7 @@ def main():
         "verify": ["--task-id"], "review": ["--task-id", "--result", "--reviewer"],
         "qa": ["--task-id", "--result", "--report", "--tester"],
         "record-error": ["--task-id", "--error-id", "--description", "--detection"],
+        "set-error-severity": ["--task-id", "--error-id"],
         "start-fix": ["--task-id", "--error-id", "--approach"],
         "join-fix": ["--task-id", "--error-id", "--approach"],
         "evaluate": ["--task-id", "--error-id", "--result", "--evidence"],
@@ -736,6 +756,8 @@ def main():
             cmd.add_argument("--root-cause")
             cmd.add_argument("--classification", choices=("code", "spec", "environment", "uncertain"))
             cmd.add_argument("--severity", choices=("blocker", "serious", "minor"))
+        if name == "set-error-severity":
+            cmd.add_argument("--severity", choices=("blocker", "serious", "minor"), required=True)
         if name == "evaluate":
             cmd.add_argument("--lesson")
         if name in ("complete-task", "complete-plan", "complete-task-accepted", "complete-plan-accepted"):
@@ -762,6 +784,7 @@ def main():
         elif args.action == "review": review(root, args.task_id, args.result, args.finding, args.reviewer)
         elif args.action == "qa": qa(root, args.task_id, args.result, Path(args.report), args.tester)
         elif args.action == "record-error": record_error(root, args.task_id, args.error_id, args.description, args.detection, args.root_cause, args.classification, args.severity)
+        elif args.action == "set-error-severity": set_error_severity(root, args.task_id, args.error_id, args.severity)
         elif args.action == "start-fix": start_fix(root, args.task_id, args.error_id, args.approach)
         elif args.action == "join-fix": join_fix(root, args.task_id, args.error_id, args.approach)
         elif args.action == "evaluate": evaluate(root, args.task_id, args.error_id, args.result, args.evidence, args.lesson)

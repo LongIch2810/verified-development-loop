@@ -412,6 +412,17 @@ class WorkflowGates(unittest.TestCase):
         self.assertEqual(self.task()["status"], "blocked")
         self.assertEqual(w.read(w.path(self.root, "plans", "active", "p1"))["execution_state"], "waiting_human")
 
+    def test_all_findings_from_one_failed_qa_can_be_recorded_before_block(self):
+        self.approve()
+        self.assertTrue(w.verify(self.root, "t1"))
+        w.review(self.root, "t1", "PASS", [], "code_reviewer")
+        self.qa_result("FAIL")
+        w.record_error(self.root, "t1", "e-spec-1", "first spec gap", "QA-01 evidence", None, "spec")
+        w.record_error(self.root, "t1", "e-spec-2", "second spec gap", "QA-01 evidence", None, "spec")
+        self.finish_block()
+        self.assertTrue((self.root / ".verified-development-loop/errors/e-spec-1.md").exists())
+        self.assertTrue((self.root / ".verified-development-loop/errors/e-spec-2.md").exists())
+
     def test_completed_requires_saved_report(self):
         self.approve()
         self.assertTrue(w.verify(self.root, "t1"))
@@ -509,6 +520,24 @@ class WorkflowGates(unittest.TestCase):
         self.assertEqual(task["latest_report"], ref)
         self.assertEqual(task["completion_kind"], "accepted_errors")
         self.assertEqual(w.read(self.root / ".verified-development-loop/errors/e-minor.md")["status"], "OPEN")
+
+    def test_human_can_accept_minor_error_after_task_was_blocked(self):
+        self.approve()
+        self.assertTrue(w.verify(self.root, "t1"))
+        w.review(self.root, "t1", "PASS", [], "code_reviewer")
+        self.qa_result("FAIL")
+        w.record_error(self.root, "t1", "e-minor", "display issue", "QA-01 evidence", None, "code")
+        with self.assertRaisesRegex(ValueError, "blocked report"):
+            w.block_task(self.root, "t1", "await human decision")
+        self.report("blocked")
+        w.block_task(self.root, "t1", "await human decision")
+        subprocess.run([sys.executable, str(Path(w.__file__)), "--root", str(self.root),
+                        "set-error-severity", "--task-id", "t1", "--error-id", "e-minor",
+                        "--severity", "minor"], check=True)
+        self.report("completed-accepted")
+        w.complete_task_accepted(self.root, "t1", ["task works"], ["e-minor"], "Human", "2026-10-19")
+        w.complete_plan(self.root, "p1", ["plan works"], accepted=True)
+        self.assertEqual(w.read(w.path(self.root, "tasks", "completed", "t1"))["completion_kind"], "accepted_errors")
 
     def test_blocker_cannot_be_accepted(self):
         self.approve()

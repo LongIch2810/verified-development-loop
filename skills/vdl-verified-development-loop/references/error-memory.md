@@ -4,7 +4,7 @@ For a completed bug-mode repair, use the existing error-record fields to retain 
 
 Each `.verified-development-loop/errors/ERROR.md` records IDs, description, evidence, root cause only if supported, fix attempt count, recurrence count, approaches and outcomes, verification logs, review findings, QA findings when applicable, status, and validated prevention lesson. Resolved records persist.
 
-When the human considers accepting a remaining error, record its severity (`blocker`, `serious`, or `minor`) in the existing error record through `record-error --severity`. The accepted-error completion path requires `serious` or `minor` for every remaining error and preserves the error record; it never marks an accepted error `RESOLVED` without a passing repair.
+When the human considers accepting a remaining error, set its severity (`blocker`, `serious`, or `minor`) in the existing error record through `set-error-severity --task-id ID --error-id ERROR --severity LEVEL`. This also works after the Task is blocked. The accepted-error completion path requires `serious` or `minor` for every remaining error and preserves the error record; it never marks an accepted error `RESOLVED` without a passing repair.
 
 At interview and task start, select records by relevant component, behavior, task, or symptom. Do not load the entire directory into model context.
 
