@@ -1,0 +1,1 @@
+Use `/vdl-verified-development-loop` only when the user requests that workflow or its interview, Spec, Plan, approval, TDD, verification, and review gates. Ordinary edits, fixes, questions, and workflow maintenance do not activate it. Read `skills/vdl-verified-development-loop/SKILL.md` and its shared role definitions in `agents/` when the workflow is active.
