@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from pathlib import Path
@@ -45,6 +46,21 @@ def hook_command(target_root: Path):
     if os.name == "nt":
         return '"' + (scripts / "vdl-hook.cmd").as_posix() + '"'
     return "python3 " + shlex.quote(str(scripts / "vdl_host_hook.py"))
+
+
+def check_stop_hook(target_root: Path):
+    with tempfile.TemporaryDirectory() as event_root:
+        result = subprocess.run(
+            hook_command(target_root), shell=True, cwd=target_root,
+            input='{"hook_event_name":"Stop"}', capture_output=True, text=True,
+            env={**os.environ, "VDL_PROJECT_ROOT": event_root}, timeout=10,
+        )
+    try:
+        output = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("VDL Stop hook must exit 0 and return exactly one JSON object") from exc
+    if result.returncode != 0 or not isinstance(output, dict):
+        raise RuntimeError("VDL Stop hook must exit 0 and return exactly one JSON object")
 
 
 def configure_hooks(target_root: Path):
@@ -196,37 +212,27 @@ def install_vdl(target_root: Path, codex_hooks: bool = True, claude_hooks: bool 
             encoding="utf-8",
         )
 
-    claude_entry = target_root / ".claude" / "skills" / "vdl-verified-development-loop" / "SKILL.md"
-    old_entry = target_root / ".claude" / "skills" / "ai-coding-workflow" / "SKILL.md"
-    if old_entry.exists():
-        old_text = old_entry.read_text(encoding="utf-8")
-        if old_text == (
-            "---\nname: ai-coding-workflow\n"
+    for skill_name in ("ai-coding-workflow", "vdl-verified-development-loop"):
+        entry = target_root / ".claude" / "skills" / skill_name / "SKILL.md"
+        generated = (
+            f"---\nname: {skill_name}\n"
             "description: Run the shared AI coding workflow when explicitly requested.\n"
             "---\n\n"
-            "Read and follow `.agents/skills/ai-coding-workflow/SKILL.md` and its bundled references. "
+            f"Read and follow `.agents/skills/{skill_name}/SKILL.md` and its bundled references. "
             "The shared skill owns all role definitions and workflow scripts.\n"
-        ):
-            old_entry.unlink()
-            if not any(old_entry.parent.iterdir()):
-                old_entry.parent.rmdir()
-    if not claude_entry.exists():
-        claude_entry.parent.mkdir(parents=True, exist_ok=True)
-        claude_entry.write_text(
-            "---\nname: vdl-verified-development-loop\n"
-            "description: Run the shared AI coding workflow when explicitly requested.\n"
-            "---\n\n"
-            "Read and follow `.agents/skills/vdl-verified-development-loop/SKILL.md` and its bundled references. "
-            "The shared skill owns all role definitions and workflow scripts.\n",
-            encoding="utf-8",
         )
-        print("  Registered Claude Code skill: .claude/skills/vdl-verified-development-loop")
+        if entry.exists() and entry.read_text(encoding="utf-8") == generated:
+            entry.unlink()
+            if not any(entry.parent.iterdir()):
+                entry.parent.rmdir()
 
     # 3. Gitignore
     configure_gitignore(target_root)
     print("  Configured .gitignore (.vdl/ exclusion)")
 
     # 4. Lifecycle hooks
+    if os.name == "nt" and (codex_hooks or claude_hooks or cursor_hooks):
+        check_stop_hook(target_root)
     if codex_hooks:
         configure_hooks(target_root)
         print("  Configured Codex lifecycle hooks in .codex/hooks.json")

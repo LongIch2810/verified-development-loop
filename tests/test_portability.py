@@ -76,7 +76,7 @@ class PortabilityTests(unittest.TestCase):
             self.assertTrue((repo / ".codex/hooks.json").is_file())
             self.assertTrue((repo / ".claude/settings.json").is_file())
             self.assertTrue((repo / ".cursor/hooks.json").is_file())
-            self.assertIn(".agents/skills/vdl-verified-development-loop/SKILL.md", (repo / ".claude/skills/vdl-verified-development-loop/SKILL.md").read_text(encoding="utf-8"))
+            self.assertFalse((repo / ".claude/skills/vdl-verified-development-loop/SKILL.md").exists())
 
     def test_installs_shared_skill_without_host_agent_files(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -91,12 +91,30 @@ class PortabilityTests(unittest.TestCase):
             self.assertFalse((repo / ".claude/agents").exists())
             self.assertFalse((repo / ".cursor/agents").exists())
             claude_entry = repo / ".claude/skills/vdl-verified-development-loop/SKILL.md"
+            self.assertFalse(claude_entry.exists())
+            claude_entry.parent.mkdir(parents=True, exist_ok=True)
             claude_entry.write_text("existing discovery instructions\n", encoding="utf-8")
             install_vdl(repo, start_dashboard=False)
             self.assertEqual(claude_entry.read_text(encoding="utf-8"), "existing discovery instructions\n")
             for directory in ("specs/drafts", "specs/active", "specs/completed", "plans/active", "tasks/active", "errors", "evidence"):
                 self.assertTrue((repo / ".verified-development-loop" / directory).is_dir())
             self.assertFalse(list((repo / ".verified-development-loop").rglob(".gitkeep")))
+
+    def test_reinstall_removes_only_generated_claude_skill_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            entry = repo / ".claude/skills/vdl-verified-development-loop/SKILL.md"
+            entry.parent.mkdir(parents=True)
+            entry.write_text(
+                "---\nname: vdl-verified-development-loop\n"
+                "description: Run the shared AI coding workflow when explicitly requested.\n"
+                "---\n\n"
+                "Read and follow `.agents/skills/vdl-verified-development-loop/SKILL.md` and its bundled references. "
+                "The shared skill owns all role definitions and workflow scripts.\n",
+                encoding="utf-8",
+            )
+            install_vdl(repo, start_dashboard=False)
+            self.assertFalse(entry.exists())
 
     @unittest.skipUnless(sys.platform == "win32", "Windows launcher only")
     def test_default_host_hooks_preserve_existing_config_and_do_not_duplicate(self):
@@ -111,6 +129,7 @@ class PortabilityTests(unittest.TestCase):
             cursor = json.loads((repo / ".cursor/hooks.json").read_text(encoding="utf-8"))
             self.assertEqual(claude["permissions"]["allow"], ["Read"])
             self.assertEqual(len(codex["hooks"]["SubagentStart"]), 1)
+            self.assertEqual(len(codex["hooks"]["Stop"]), 1)
             self.assertEqual(len(claude["hooks"]["SubagentStart"]), 1)
             self.assertEqual(len(cursor["hooks"]["subagentStart"]), 1)
             self.assertIn("vdl-hook.cmd", cursor["hooks"]["subagentStart"][0]["command"])
@@ -123,6 +142,21 @@ class PortabilityTests(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stderr)
             self.assertEqual(json.loads(run.stdout), {"permission": "allow"})
             self.assertIn("subagent.started", (repo / ".vdl/events.jsonl").read_text(encoding="utf-8"))
+            stop_command = codex["hooks"]["Stop"][0]["hooks"][0]["command"]
+            stop = subprocess.run(stop_command, shell=True, cwd=repo,
+                                  input='{"hook_event_name":"Stop"}', capture_output=True, text=True)
+            self.assertEqual(stop.returncode, 0, stop.stderr)
+            self.assertEqual(json.loads(stop.stdout), {})
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows launcher only")
+    def test_install_rejects_empty_stop_hook_stdout(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            empty_hook = repo / "empty-stop.cmd"
+            empty_hook.write_text("@echo off\nexit /b 0\n", encoding="utf-8")
+            with patch("install_vdl.hook_command", return_value=f'"{empty_hook.as_posix()}"'):
+                with self.assertRaisesRegex(RuntimeError, "Stop hook.*JSON"):
+                    install_vdl(repo, start_dashboard=False)
 
     @unittest.skipUnless(sys.platform == "win32", "Windows launcher only")
     def test_codex_hook_runs_from_path_with_shell_metacharacter(self):
