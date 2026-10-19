@@ -1,7 +1,8 @@
 # Changelog
 
-## Chưa phát hành
+## Unreleased
 
-- Đóng gói skill tại `skills/vdl-verified-development-loop/` để phát hành từ Git repo.
-- Hỗ trợ cài hook cho Codex, Claude Code và Cursor trên Windows, macOS và Linux.
-- Cung cấp Control Center, workflow có bằng chứng và ba mẫu Spec, Plan, QA report.
+- Publish repository documentation in English.
+- Package the skill at `skills/vdl-verified-development-loop/` for installation from the Git repository.
+- Support Codex, Claude Code, and Cursor lifecycle hooks on Windows, macOS, and Linux.
+- Provide the Control Center, an evidence-backed workflow, and Spec, Plan, and QA report templates.
