@@ -623,7 +623,7 @@ class WorkflowStateReducer:
         return {
             "project_id": project_id,
             "project_root": str(root),
-            "mode": "bug" if bug_mode else "feature",
+            "mode": "bug" if bug_mode else ("feature" if current_step_id else None),
             "session_id": session_id,
             "active_plan_id": active_plan_id,
             "active_task_id": active_task_id,
@@ -803,7 +803,7 @@ class WorkflowStateReducer:
             {"from": "diagnosis" if "diagnosis" in steps else "interview", "to": "proposal", "type": "sequence"},
             {"from": "proposal", "to": "approval", "type": "sequence"},
             {"from": "approval", "to": "active", "type": "approved"},
-            {"from": "approval", "to": "diagnosis" if "diagnosis" in steps else "interview", "type": "loop_revision"},
+            {"from": "approval", "to": "proposal", "type": "loop_revision"},
             {"from": "active", "to": "tdd", "type": "sequence"},
             {"from": "tdd", "to": "verify", "type": "sequence"},
             {"from": "verify", "to": "review", "type": "pass"},

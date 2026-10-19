@@ -1,6 +1,6 @@
 ﻿# Real-Time Workflow Tracking
 
-The VDL Control Center displays real-time events for the 13-step feature workflow. Bug mode replaces the interview node with diagnosis; the feature graph stays unchanged. State-gate commands emit events automatically; the main agent must emit chat-only phase checkpoints. Host hooks add passive session and subagent lifecycle events where an adapter is installed. Without either source, the dashboard cannot observe agent activity.
+The VDL Control Center displays real-time events for the 13-step workflow. Before a workflow starts, it shows **Chưa chọn mode**, explains both modes, and displays separate Interview and Diagnosis nodes. Feature Mode shows only Interview to clarify requirements; Bug Mode shows only Diagnosis to reproduce the bug and identify its cause before Spec/Plan. The sequential log follows the selected branch, then the shared later steps. If the human requests changes before approval, revise the draft Spec/Plan and present both again; the approval arrow returns to Spec/Plan in either mode. A new diagnosis is needed only when the bug evidence or cause needs investigation again. **Thử Nghiệm FX** only simulates the UI; it does not start a workflow or write events. State-gate commands emit events automatically; the main agent must emit chat-only phase checkpoints. Host hooks add passive session and subagent lifecycle events where an adapter is installed. Without either source, the dashboard cannot observe agent activity.
 1. `raw_prompt`
 2. `read_errors`
 3. `interview`

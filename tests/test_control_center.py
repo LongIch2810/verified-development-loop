@@ -52,11 +52,18 @@ class ControlCenterServerTests(unittest.TestCase):
             self.assertIn("Sơ đồ Chu trình Workflow", content)
             self.assertIn("workflowSvg", content)
             self.assertTrue('id="demoModeSelect"' in content)
-            self.assertTrue('Bug mode:' in content)
+            self.assertIn('Feature Mode:', content)
+            self.assertIn('Bug Mode:', content)
+            self.assertIn('Diagnosis thay Interview', content)
+            self.assertIn('Thử Nghiệm FX · Mô phỏng UI', content)
+            self.assertIn('Chưa chọn mode', content)
             self.assertIn('id="metricMode"', content)
             self.assertIn('qa:          { cx:', content)
             self.assertIn('id: "review->qa"', content)
             self.assertIn('id: "qa->complete"', content)
+            self.assertIn('id: "approval->proposal"', content)
+            self.assertNotIn('id: "approval->interview"', content)
+            self.assertNotIn('id: "approval->diagnosis"', content)
 
     def test_api_projects_and_state(self):
         # 1. Check projects endpoint
@@ -73,14 +80,30 @@ class ControlCenterServerTests(unittest.TestCase):
             state = json.loads(resp.read().decode("utf-8"))
             self.assertEqual(len(state["steps"]), 13)
             self.assertEqual(state["steps"][0]["id"], "raw_prompt")
+            self.assertIsNone(state["mode"])
+
+    def test_api_state_exposes_feature_mode_graph(self):
+        ve.emit_event(self.root, "raw_prompt.received", data={"mode": "feature"}, notify=False)
+        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/state") as resp:
+            state = json.loads(resp.read().decode("utf-8"))
+        self.assertEqual(state["mode"], "feature")
+        self.assertEqual(state["steps"][2]["id"], "interview")
+        self.assertIn("interview", {node["id"] for node in state["graph"]["nodes"]})
+        self.assertNotIn("diagnosis", {node["id"] for node in state["graph"]["nodes"]})
+        self.assertIn({"from": "approval", "to": "proposal", "type": "loop_revision"}, state["graph"]["edges"])
 
     def test_api_state_exposes_bug_mode_graph(self):
         ve.emit_event(self.root, "raw_prompt.received", data={"mode": "bug"}, notify=False)
         with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/api/state") as resp:
             state = json.loads(resp.read().decode("utf-8"))
         self.assertEqual(state["mode"], "bug")
+        self.assertEqual(state["steps"][2]["id"], "diagnosis")
         self.assertIn("diagnosis", {node["id"] for node in state["graph"]["nodes"]})
         self.assertNotIn("interview", {node["id"] for node in state["graph"]["nodes"]})
+        self.assertIn({"from": "approval", "to": "proposal", "type": "loop_revision"}, state["graph"]["edges"])
+        self.assertEqual([step["id"] for step in state["steps"]][3:],
+                         ["spec", "plan", "human_approval", "active", "tdd", "verification",
+                          "code_review", "qa", "fix_loop", "main_agent_report"])
 
     def test_cross_origin_requests_cannot_read_or_write_events(self):
         base = f"http://127.0.0.1:{self.port}"

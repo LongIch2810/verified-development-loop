@@ -520,6 +520,7 @@ HTML_PAGE = """<!DOCTYPE html>
       height: 100%;
       max-height: 700px;
     }
+    .graph-scroll-hint { display: none; }
 
     /* SVG Graph Element Styling */
     .svg-phase-bg {
@@ -1262,6 +1263,16 @@ HTML_PAGE = """<!DOCTYPE html>
       align-items: center;
       background: #181818;
     }
+    @media (max-width: 900px) {
+      header { padding: 0.65rem 0.75rem; }
+      .brand-tag { display: none; }
+      .container { grid-template-columns: minmax(0, 1fr); padding: 0 0.75rem; }
+      .workspace-pane { min-width: 0; padding: 14px; }
+      .pane-header, .legend-group { flex-wrap: wrap; gap: 0.5rem; }
+      .graph-scroll-hint { display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.75rem; }
+      #graphContainer { overflow-x: auto; justify-content: flex-start; min-height: 560px; }
+      svg#workflowSvg { flex: 0 0 850px; height: auto; }
+    }
   </style>
 </head>
 <body>
@@ -1302,7 +1313,7 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
 
       <div class="control-group">
-        <label for="demoModeSelect">Xem thử:</label>
+        <label for="demoModeSelect">Mô phỏng UI:</label>
         <select id="demoModeSelect">
           <option value="feature">Feature</option>
           <option value="bug">Bug</option>
@@ -1310,7 +1321,7 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
 
       <button id="btnDemoMode" class="demo-btn" onclick="toggleDemoMode()" title="Chạy mô phỏng để kiểm tra hiệu ứng sáng node và boots tốc độ">
-        <span id="demoBtnIcon">▶</span> <span id="demoBtnText">Thử Nghiệm FX</span>
+        <span id="demoBtnIcon">▶</span> <span id="demoBtnText">Thử Nghiệm FX · Mô phỏng UI</span>
       </button>
 
       <div id="connPill" class="status-pill status-CONNECTING">
@@ -1324,7 +1335,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <div class="metrics-bar">
     <div class="metric-item">
       <span class="metric-label">Mode:</span>
-      <span id="metricMode" class="metric-value">Feature</span>
+      <span id="metricMode" class="metric-value">Chưa chọn mode</span>
     </div>
     <div class="metric-item">
       <span class="metric-label">Giai đoạn:</span>
@@ -1383,7 +1394,9 @@ HTML_PAGE = """<!DOCTYPE html>
         </div>
       </div>
 
-      <p class="mode-explainer"><strong>Bug mode:</strong> Đọc lỗi cũ → Chẩn đoán (tái hiện, tìm nguyên nhân) → Bug Spec &amp; kế hoạch sửa → duyệt → TDD → kiểm thử, review, QA. Chọn Bug ở “Xem thử”, rồi bấm “Thử Nghiệm FX” để xem luồng mô phỏng.</p>
+      <div class="mode-explainer"><p><strong>Feature Mode:</strong> Interview làm rõ yêu cầu trước Spec/Plan.</p><p><strong>Bug Mode:</strong> Diagnosis thay Interview để tái hiện lỗi và xác định nguyên nhân trước Spec/Plan. Các bước sau đó giống Feature Mode.</p><p>“Thử Nghiệm FX” chỉ mô phỏng giao diện, không khởi chạy workflow.</p></div>
+      <p id="emptyWorkflowNote" class="mode-explainer">Chưa có workflow. Chưa chọn mode; hãy xem mô tả Feature Mode và Bug Mode ở trên.</p>
+      <p class="graph-scroll-hint">Vuốt ngang trong khung sơ đồ để xem các node còn lại.</p>
 
       <!-- VIEW 1: Dynamic SVG Workflow Loop Graph -->
       <div id="graphContainer">
@@ -1431,12 +1444,12 @@ HTML_PAGE = """<!DOCTYPE html>
           <!-- Phase Group Backgrounds -->
           <g id="svgPhaseBgs">
             <!-- Phase 1: Inception -->
-            <rect class="svg-phase-bg" x="20" y="15" width="1060" height="145" rx="16" />
+            <rect class="svg-phase-bg" x="20" y="15" width="1060" height="245" rx="16" />
             <text class="svg-phase-title" x="60" y="34">TẦNG 1: THIẾT LẬP &amp; DUYỆT KẾ HOẠCH (INCEPTION)</text>
 
             <!-- Phase 2: Governed Core Execution -->
-            <rect class="svg-phase-bg" x="20" y="235" width="1060" height="160" rx="16" />
-            <text class="svg-phase-title" x="60" y="254">TẦNG 2: TDD, VERIFICATION, REVIEW &amp; QA (CORE EXECUTION)</text>
+            <rect class="svg-phase-bg" x="20" y="280" width="1060" height="160" rx="16" />
+            <text class="svg-phase-title" x="135" y="299">TẦNG 2: TDD, VERIFICATION, REVIEW &amp; QA (CORE EXECUTION)</text>
 
             <!-- Phase 3: Bounded Feedback Loops & Escape Branch -->
             <rect class="svg-phase-bg" x="20" y="480" width="1060" height="155" rx="16" />
@@ -1575,21 +1588,21 @@ HTML_PAGE = """<!DOCTYPE html>
 
     // Node Spatial Coordinates on the 1100x700 SVG Canvas (Circular Nodes)
     const NODE_COORDS = {
-      // Tầng 1: Thiết lập & Duyệt kế hoạch (cy = 80)
+      // Tầng 1: hai nhánh mode cùng cột, cách nhau theo hàng.
       prompt:      { cx: 95,  cy: 80,  r: 26, icon: "💬", label: "Yêu cầu Gốc", sub: "User Prompt" },
       read_errors: { cx: 275, cy: 80,  r: 26, icon: "📖", label: "Đọc Lỗi Cũ", sub: "Ký ức lỗi" },
-      interview:   { cx: 470, cy: 80,  r: 26, icon: "❓", label: "Phỏng Vấn", sub: "Làm rõ yêu cầu" },
-       diagnosis:   { cx: 470, cy: 80,  r: 26, icon: "🔬", label: "Chẩn Đoán", sub: "Nguyên nhân gốc" },
+      interview:   { cx: 430, cy: 80,  r: 26, icon: "❓", label: "Phỏng Vấn", sub: "Feature Mode" },
+      diagnosis:   { cx: 430, cy: 180, r: 26, icon: "🔬", label: "Chẩn Đoán", sub: "Bug Mode" },
       proposal:    { cx: 665, cy: 80,  r: 26, icon: "📋", label: "Đặc Tả & Plan", sub: "Kế hoạch chi tiết" },
       approval:    { cx: 890, cy: 80,  r: 28, icon: "🛡️", label: "Cổng Duyệt", sub: "Chờ người duyệt", isGate: true },
 
-       // Tầng 2: TDD, Verification, Review & QA (cy = 290)
-      active:      { cx: 95,  cy: 290, r: 26, icon: "🎯", label: "Nhiệm Vụ", sub: "Phạm vi Task" },
-      tdd:         { cx: 275, cy: 290, r: 26, icon: "⚡", label: "Lập Trình TDD", sub: "Red-Green-Refactor" },
-      verify:      { cx: 505, cy: 290, r: 28, icon: "🧪", label: "Cổng Kiểm Thử", sub: "Test argv độc lập", isGate: true },
-       review:      { cx: 705, cy: 290, r: 28, icon: "🔍", label: "Review Độc Lập", sub: "Agent phản biện", isGate: true },
-       qa:          { cx: 845, cy: 290, r: 28, icon: "🧭", label: "QA Sản Phẩm", sub: "Thử nghiệm thực tế", isGate: true },
-       complete:    { cx: 1000, cy: 290, r: 26, icon: "🏆", label: "Nhiệm Vụ Xong", sub: "Hoàn tất task" },
+       // Tầng 2: TDD, Verification, Review & QA (cy = 350)
+      active:      { cx: 95,  cy: 350, r: 26, icon: "🎯", label: "Nhiệm Vụ", sub: "Phạm vi Task" },
+      tdd:         { cx: 275, cy: 350, r: 26, icon: "⚡", label: "Lập Trình TDD", sub: "Red-Green-Refactor" },
+      verify:      { cx: 505, cy: 350, r: 28, icon: "🧪", label: "Cổng Kiểm Thử", sub: "Test argv độc lập", isGate: true },
+       review:      { cx: 705, cy: 350, r: 28, icon: "🔍", label: "Review Độc Lập", sub: "Agent phản biện", isGate: true },
+       qa:          { cx: 845, cy: 350, r: 28, icon: "🧭", label: "QA Sản Phẩm", sub: "Thử nghiệm thực tế", isGate: true },
+       complete:    { cx: 1000, cy: 350, r: 26, icon: "🏆", label: "Nhiệm Vụ Xong", sub: "Hoàn tất task" },
 
       // Tầng 3: Vòng lặp sửa lỗi & Phòng vệ an toàn (cy = 535)
       blocked:     { cx: 95,  cy: 535, r: 28, icon: "⛔", label: "BỊ CHẶN", sub: "Dừng an toàn", isBlocked: true },
@@ -1602,60 +1615,51 @@ HTML_PAGE = """<!DOCTYPE html>
     const EDGE_PATHS = [
       // Tầng 1: Tuần tự ngang (Cyan)
       { id: "prompt->read_errors", from: "prompt", to: "read_errors", color: "cyan", marker: "arrowCyan", d: "M 121 80 L 247 80" },
-      { id: "read_errors->interview", from: "read_errors", to: "interview", color: "cyan", marker: "arrowCyan", d: "M 301 80 L 442 80" },
-       { id: "read_errors->diagnosis", from: "read_errors", to: "diagnosis", color: "cyan", marker: "arrowCyan", d: "M 301 80 L 442 80" },
-      { id: "interview->proposal", from: "interview", to: "proposal", color: "cyan", marker: "arrowCyan", d: "M 496 80 L 637 80" },
-       { id: "diagnosis->proposal", from: "diagnosis", to: "proposal", color: "cyan", marker: "arrowCyan", d: "M 496 80 L 637 80" },
+      { id: "read_errors->interview", from: "read_errors", to: "interview", color: "cyan", marker: "arrowCyan", d: "M 301 80 L 402 80" },
+      { id: "read_errors->diagnosis", from: "read_errors", to: "diagnosis", color: "cyan", marker: "arrowCyan", d: "M 301 80 L 320 80 L 320 180 L 402 180" },
+      { id: "interview->proposal", from: "interview", to: "proposal", color: "cyan", marker: "arrowCyan", d: "M 458 80 L 637 80" },
+      { id: "diagnosis->proposal", from: "diagnosis", to: "proposal", color: "cyan", marker: "arrowCyan", d: "M 456 180 L 540 180 L 540 95 L 644 95" },
       { id: "proposal->approval", from: "proposal", to: "approval", color: "cyan", marker: "arrowCyan", d: "M 691 80 L 860 80" },
 
-      // Chu trình 1: Yêu cầu sửa (Hành lang Đỉnh y = 18 - Amber / Cam)
-      // Xuất phát từ đỉnh Cổng Duyệt (890, 52), đi thẳng đứng lên y=28, cua góc 90° sang trái ra y=18, chạy thẳng ngang đến x=480, cua góc 90° xuống x=470, kéo dài đoạn thẳng 24px cắm thẳng đứng vào đỉnh Phỏng Vấn (470, 52)
-      { id: "approval->interview", from: "approval", to: "interview", color: "amber", marker: "arrowAmber", d: "M 890 52 L 890 28 Q 890 18 880 18 L 480 18 Q 470 18 470 28 L 470 52", label: "Yêu cầu sửa ↺", labelX: 680, labelY: 18 },
-       { id: "approval->diagnosis", from: "approval", to: "diagnosis", color: "amber", marker: "arrowAmber", d: "M 890 52 L 890 28 Q 890 18 880 18 L 480 18 Q 470 18 470 28 L 470 52", label: "Yêu cầu sửa ↺", labelX: 680, labelY: 18 },
+      { id: "approval->proposal", from: "approval", to: "proposal", color: "amber", marker: "arrowAmber", d: "M 890 52 L 890 30 L 665 30 L 665 52", label: "Yêu cầu sửa ↺", labelX: 778, labelY: 30 },
 
-      // Chuyển tiếp: Đã duyệt xuống Tầng 2 (Hành lang Giữa 1: y = 185 - Emerald / Xanh lá)
-      // Xuất phát từ đáy Cổng Duyệt (890, 153), đi thẳng xuống y=175, cua góc 90° sang trái ra y=185, chạy thẳng ngang đến x=105, cua góc 90° xuống x=95, kéo dài đoạn thẳng 67px cắm thẳng đứng vào đỉnh Nhiệm Vụ (95, 262)
-      { id: "approval->active", from: "approval", to: "active", color: "emerald", marker: "arrowEmerald", d: "M 890 153 L 890 175 Q 890 185 880 185 L 105 185 Q 95 185 95 195 L 95 262", label: "Đã phê duyệt", labelX: 480, labelY: 185 },
+      // Hành lang dưới hai nhánh mode, phía trên hàng Task.
+      { id: "approval->active", from: "approval", to: "active", color: "emerald", marker: "arrowEmerald", d: "M 890 153 L 890 265 L 95 265 L 95 324", label: "Đã phê duyệt", labelX: 480, labelY: 265 },
 
-      // Chu trình 2: Task kế tiếp (Hành lang Giữa 2: y = 212, vòng ngoài x = 35 - Purple / Tím)
-       // Xuất phát từ đỉnh Nhiệm Vụ Xong (1000, 264), đi thẳng lên y=222, cua góc 90° ra y=212, chạy thẳng ngang sang trái đến x=45, cua góc 90° xuống x=35, chạy thẳng dọc theo x=35 đến y=280, cua góc 90° sang phải ra y=290, kéo dài đoạn thẳng 22px cắm thẳng ngang vào sườn trái Nhiệm Vụ (67, 290)
-       { id: "complete->active", from: "complete", to: "active", color: "purple", marker: "arrowPurple", d: "M 1000 264 L 1000 222 Q 1000 212 990 212 L 45 212 Q 35 212 35 222 L 35 280 Q 35 290 45 290 L 67 290", label: "Task kế tiếp ↺", labelX: 340, labelY: 212 },
+      // Chu trình 2: Task kế tiếp ở đầu tầng TDD.
+       { id: "complete->active", from: "complete", to: "active", color: "purple", marker: "arrowPurple", d: "M 1000 324 L 1000 310 L 35 310 L 35 350 L 67 350", label: "Task kế tiếp ↺", labelX: 680, labelY: 310 },
 
       // Tầng 2: Cốt lõi ngang (Cyan)
-      { id: "active->tdd", from: "active", to: "tdd", color: "cyan", marker: "arrowCyan", d: "M 121 290 L 247 290" },
-      { id: "tdd->verify", from: "tdd", to: "verify", color: "cyan", marker: "arrowCyan", d: "M 301 290 L 475 290" },
+      { id: "active->tdd", from: "active", to: "tdd", color: "cyan", marker: "arrowCyan", d: "M 121 350 L 247 350" },
+      { id: "tdd->verify", from: "tdd", to: "verify", color: "cyan", marker: "arrowCyan", d: "M 301 350 L 475 350" },
 
       // Hai cổng Đạt chuẩn (Emerald)
-       { id: "verify->review", from: "verify", to: "review", color: "emerald", marker: "arrowEmerald", d: "M 533 290 L 675 290", label: "ĐẠT (PASS)", labelX: 604, labelY: 274 },
-       { id: "review->qa", from: "review", to: "qa", color: "emerald", marker: "arrowEmerald", d: "M 733 290 L 815 290" },
-       { id: "qa->complete", from: "qa", to: "complete", color: "emerald", marker: "arrowEmerald", d: "M 873 290 L 972 290", label: "ĐẠT (PASS)", labelX: 923, labelY: 274 },
+       { id: "verify->review", from: "verify", to: "review", color: "emerald", marker: "arrowEmerald", d: "M 533 350 L 675 350", label: "ĐẠT (PASS)", labelX: 604, labelY: 334 },
+       { id: "review->qa", from: "review", to: "qa", color: "emerald", marker: "arrowEmerald", d: "M 733 350 L 815 350" },
+       { id: "qa->complete", from: "qa", to: "complete", color: "emerald", marker: "arrowEmerald", d: "M 873 350 L 972 350", label: "ĐẠT (PASS)", labelX: 923, labelY: 334 },
 
       // THẲNG ĐỨNG 90°: Cổng Kiểm thử Thất bại rơi thẳng xuống Ghi nhận lỗi (Rose / Đỏ)
-      // Xuất phát từ đáy Kiểm thử (505, 362), kéo dài đoạn thẳng 145px cắm thẳng đứng vào đỉnh Ghi nhận lỗi (505, 507)
-      { id: "verify->error_rec", from: "verify", to: "error_rec", color: "rose", marker: "arrowRose", d: "M 505 362 L 505 507", label: "THẤT BẠI (FAIL)", labelX: 505, labelY: 412 },
+      // Xuất phát dưới Kiểm thử, đến đỉnh Ghi nhận lỗi.
+      { id: "verify->error_rec", from: "verify", to: "error_rec", color: "rose", marker: "arrowRose", d: "M 505 422 L 505 507", label: "THẤT BẠI (FAIL)", labelX: 505, labelY: 462 },
 
       // Review có điểm sửa lỗi (Hành lang Giữa 3: y = 445 - Rose / Đỏ)
-       // Xuất phát từ đáy Review (705, 362), đi thẳng đứng xuống y=435, cua góc 90° sang trái ra y=445, chạy thẳng ngang đến x=595, cua góc 90° xuống x=585, chạy thẳng dọc theo x=585 đến y=525, cua góc 90° sang trái ra y=535, kéo dài đoạn thẳng 42px cắm thẳng ngang vào sườn phải Ghi nhận lỗi (533, 535)
-       { id: "review->error_rec", from: "review", to: "error_rec", color: "rose", marker: "arrowRose", d: "M 705 362 L 705 435 Q 705 445 695 445 L 595 445 Q 585 445 585 455 L 585 525 Q 585 535 575 535 L 533 535", label: "Có điểm cần sửa", labelX: 645, labelY: 445 },
-       { id: "qa->error_rec", from: "qa", to: "error_rec", color: "rose", marker: "arrowRose", d: "M 845 362 L 845 465 Q 845 475 835 475 L 635 475 Q 625 475 625 485 L 625 525 Q 625 535 615 535 L 533 535", label: "QA FAIL", labelX: 745, labelY: 475 },
+       { id: "review->error_rec", from: "review", to: "error_rec", color: "rose", marker: "arrowRose", d: "M 705 422 L 705 435 Q 705 445 695 445 L 595 445 Q 585 445 585 455 L 585 525 Q 585 535 575 535 L 533 535", label: "Có điểm cần sửa", labelX: 645, labelY: 445 },
+       { id: "qa->error_rec", from: "qa", to: "error_rec", color: "rose", marker: "arrowRose", d: "M 845 422 L 845 465 Q 845 475 835 475 L 635 475 Q 625 475 625 485 L 625 525 Q 625 535 615 535 L 533 535", label: "QA FAIL", labelX: 745, labelY: 475 },
 
       // Tầng 3: Chuyển sang Vòng sửa lỗi (Cyan)
       { id: "error_rec->fix_loop", from: "error_rec", to: "fix_loop", color: "cyan", marker: "arrowCyan", d: "M 479 535 L 305 535" },
 
       // CHU TRÌNH SỬA LỖI CỐT LÕI: VUÔNG GÓC KHÉP KÍN (Amber / Cam)
-      // Xuất phát từ sườn trái Vòng Sửa Lỗi (247, 535), chạy thẳng ngang sang trái đến x=195, cua góc 90° lên x=185, chạy thẳng đứng theo khe x=185 lên y=300 (225px), cua góc 90° sang phải ra y=290, kéo dài đoạn thẳng 52px cắm thẳng ngang vào sườn trái Lập Trình TDD (247, 290)
-      { id: "fix_loop->tdd", from: "fix_loop", to: "tdd", color: "amber", marker: "arrowAmber", d: "M 247 535 L 195 535 Q 185 535 185 525 L 185 300 Q 185 290 195 290 L 247 290", label: "Sửa lỗi ↺", labelX: 185, labelY: 412 },
+      { id: "fix_loop->tdd", from: "fix_loop", to: "tdd", color: "amber", marker: "arrowAmber", d: "M 247 535 L 195 535 Q 185 535 185 525 L 185 360 Q 185 350 195 350 L 247 350", label: "Sửa lỗi ↺", labelX: 185, labelY: 452 },
 
       // Khi cạn kiệt 3 lượt: fix_loop rẽ sang BỊ CHẶN (Rose / Đỏ)
       { id: "fix_loop->blocked", from: "fix_loop", to: "blocked", color: "rose", marker: "arrowRose", d: "M 247 535 L 125 535", label: "Vượt quá 3 lượt", labelX: 186, labelY: 520 },
 
       // Khi thiếu tool / lỗi nghiêm trọng: Rẽ sang Hành lang y = 468 lượn vào đỉnh BỊ CHẶN (Rose / Đỏ)
-      // Xuất phát từ đáy Kiểm thử bên trái (480, 362), đi thẳng xuống y=458, cua góc 90° sang trái ra y=468, chạy thẳng ngang đến x=105, cua góc 90° xuống x=95, kéo dài đoạn thẳng 27px cắm thẳng đứng vào đỉnh BỊ CHẶN (95, 505)
-      { id: "verify->blocked", from: "verify", to: "blocked", color: "rose", marker: "arrowRose", d: "M 480 362 L 480 458 Q 480 468 470 468 L 105 468 Q 95 468 95 478 L 95 505", label: "Lỗi sâu / Thiếu tool", labelX: 290, labelY: 468 },
+      { id: "verify->blocked", from: "verify", to: "blocked", color: "rose", marker: "arrowRose", d: "M 480 422 L 480 458 Q 480 468 470 468 L 105 468 Q 95 468 95 478 L 95 505", label: "Lỗi sâu / Thiếu tool", labelX: 290, labelY: 468 },
 
       // THẲNG ĐỨNG 90°: Hoàn thành xuống Báo cáo Nghiệm thu (Purple / Tím)
-       // Xuất phát từ đáy Nhiệm vụ Xong (1000, 362), kéo dài đoạn thẳng 145px cắm thẳng đứng vào đỉnh Báo cáo (1000, 507)
-       { id: "complete->report", from: "complete", to: "report", color: "purple", marker: "arrowPurple", d: "M 1000 362 L 1000 507", label: "Nghiệm thu", labelX: 1000, labelY: 412 }
+       { id: "complete->report", from: "complete", to: "report", color: "purple", marker: "arrowPurple", d: "M 1000 422 L 1000 507", label: "Nghiệm thu", labelX: 1000, labelY: 462 }
     ];
 
     function switchView(mode) {
@@ -1739,6 +1743,11 @@ HTML_PAGE = """<!DOCTYPE html>
       (graphData.nodes || []).forEach(n => {
         nodeStatusMap[n.id] = n;
       });
+      if (!graphData.mode) {
+        for (const id of ["interview", "diagnosis"]) {
+          if (!nodeStatusMap[id]) nodeStatusMap[id] = { id, status: "PENDING" };
+        }
+      }
 
       // 1. Render Edges with Semantic Colors, Speed Boost FX & Label Pills
       EDGE_PATHS.forEach(edge => {
@@ -2015,6 +2024,10 @@ HTML_PAGE = """<!DOCTYPE html>
       const container = document.getElementById("stepperViewContainer");
       if (!container) return;
       container.innerHTML = "";
+      if (!steps.length) {
+        container.textContent = "Chưa có workflow. Chưa chọn mode.";
+        return;
+      }
 
       const VN_STATUS_MAP = {
         "PENDING": "CHỜ",
@@ -2247,19 +2260,26 @@ HTML_PAGE = """<!DOCTYPE html>
         };
         const stageKey = state.current_step_id || "";
         const displayedMode = isDemoRunning ? document.getElementById("demoModeSelect").value : state.mode;
-        document.getElementById("metricMode").textContent = (displayedMode === "bug" ? "Bug" : "Feature") + (isDemoRunning ? " (xem thử)" : "");
+        document.getElementById("metricMode").textContent = displayedMode ? (displayedMode === "bug" ? "Bug Mode" : "Feature Mode") + (isDemoRunning ? " (mô phỏng)" : "") : "Chưa chọn mode";
+        document.getElementById("emptyWorkflowNote").style.display = displayedMode ? "none" : "block";
         document.getElementById("metricStage").textContent = stageKey ? (STAGE_VN_MAP[stageKey] || stageKey.replace(/_/g, " ").toUpperCase()) : "CHỜ BẮT ĐẦU";
         document.getElementById("metricTask").textContent = state.active_task_id || "chưa có";
         document.getElementById("metricFingerprint").textContent = (state.verification && state.verification.revision) ? state.verification.revision.slice(0, 8) : "--------";
 
         // Store latest graph and render SVG Loop Graph
-        window.latestGraphData = state.graph || {};
+        const graphData = state.graph || {};
+        window.latestGraphData = state.mode ? { ...graphData, mode: state.mode } : {
+            ...graphData,
+            nodes: (graphData.nodes || []).map(node => ({ ...node, is_next: false })),
+            active_edges: [],
+            mode: null
+          };
         if (!isDemoRunning) {
           renderSvgGraph(window.latestGraphData);
         }
 
         // Also render Stepper view
-        renderStepper(state.steps || [], state.current_step_id);
+        renderStepper(state.mode ? (state.steps || []) : [], state.current_step_id);
 
         renderVerification(state.verification);
         renderReview(state.review);
@@ -2362,7 +2382,7 @@ HTML_PAGE = """<!DOCTYPE html>
         isDemoRunning = false;
         btn.classList.remove("demo-active");
         icon.textContent = "▶";
-        txt.textContent = "Thử Nghiệm FX";
+        txt.textContent = "Thử Nghiệm FX · Mô phỏng UI";
         modeSelect.disabled = false;
         refreshState();
         return;
@@ -2371,11 +2391,12 @@ HTML_PAGE = """<!DOCTYPE html>
       isDemoRunning = true;
       btn.classList.add("demo-active");
       icon.textContent = "⏹";
-      txt.textContent = "Dừng Thử Nghiệm";
+      txt.textContent = "Dừng Mô phỏng UI";
       modeSelect.disabled = true;
 
       const demoMode = modeSelect.value;
-      document.getElementById("metricMode").textContent = (demoMode === "bug" ? "Bug" : "Feature") + " (xem thử)";
+      document.getElementById("metricMode").textContent = (demoMode === "bug" ? "Bug Mode" : "Feature Mode") + " (mô phỏng)";
+      document.getElementById("emptyWorkflowNote").style.display = "none";
       const demoSteps = demoMode === "bug" ? DEMO_STEPS.map(item => ({
         ...item,
         step: item.step === "interview" ? "diagnosis" : item.step,
@@ -2387,7 +2408,9 @@ HTML_PAGE = """<!DOCTYPE html>
       let idx = 0;
       function playStep() {
         const item = demoSteps[idx];
-        const fakeNodes = Object.keys(NODE_COORDS).filter(id => id !== (demoMode === "bug" ? "interview" : "diagnosis")).map(id => {
+        const fakeNodes = Object.keys(NODE_COORDS).filter(id =>
+          id !== (demoMode === "bug" ? "interview" : "diagnosis")
+        ).map(id => {
           let st = "PENDING";
           if (id === item.active) {
             st = (id === "approval") ? "WAITING_HUMAN" : ((id === "verify" && item.step === "verify_fail") ? "FAILED" : "RUNNING");
@@ -2403,6 +2426,7 @@ HTML_PAGE = """<!DOCTYPE html>
         });
 
         renderSvgGraph({
+          mode: demoMode,
           nodes: fakeNodes,
           active_edges: item.edge,
           active_node_id: item.active,
