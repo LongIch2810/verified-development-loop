@@ -1,6 +1,6 @@
 ---
 name: vdl-verified-development-loop
-description: Run an explicitly requested software workflow through Spec, Plan, approval, TDD, verification, review, and QA. Skip ordinary coding and workflow maintenance.
+description: Run one feature through interview, Spec, Plan, human approval, TDD, verification, independent review, and QA. Use only when the user names this workflow (verified development loop, "chạy loop") or asks for its steps or approval gates. Skip ordinary coding, bug fixes, and workflow maintenance.
 ---
 
 # VDL-Verified-Development-Loop
